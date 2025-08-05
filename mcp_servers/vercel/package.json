@@ -1,0 +1,32 @@
+{
+  "name": "@klavis/vercel-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Vercel deployment platform integration",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:e2e": "vitest run llm.e2e",
+    "test:run": "vitest --run",
+    "lint": "eslint src/ --ext .ts",
+    "start": "node dist/server.js",
+    "verify": "node verify-server.js",
+    "test-mcp": "node test-mcp-manual.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "node-fetch": "^3.3.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.9",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

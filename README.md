@@ -244,6 +244,9 @@ console.log(finalResponse.choices[0].message.content);
 - Unit Tests, integration test
 - /docs improvement
 
+## ✅ Recently Added
+- **Vercel MCP Server** - Complete deployment platform integration with support for deployments, projects, domains, and environment variables
+
 ## 🔧 Authentication & Multi-Tool Workflows
 
 ### Authentication
