@@ -109,7 +109,6 @@ export const ListDomainsSchema = z.object({
 
 export const AddDomainSchema = z.object({
   name: z.string().min(1, 'Domain name is required'),
-  projectId: z.string().min(1, 'Project ID is required'),
   redirect: z.string().optional(),
   redirectStatusCode: z.number().optional(),
   gitBranch: z.string().optional(),

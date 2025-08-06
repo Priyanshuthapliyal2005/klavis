@@ -56,18 +56,22 @@ export function formatProject(project: VercelProject): string {
  */
 export function formatDomain(domain: VercelDomain): string {
   const status = domain.verified ? '✅' : '⚠️';
+  const name = domain.name || 'Unknown';
+  const verified = domain.verified !== undefined ? domain.verified : 'Unknown';
   const created = domain.createdAt ? formatTimestamp(domain.createdAt) : 'Unknown';
-  return `${status} ${domain.name} - Verified: ${domain.verified} - Created: ${created}`;
+  return `${status} ${name} - Verified: ${verified} - Created: ${created}`;
 }
 
 /**
  * Format environment variable for display (masked value)
  */
 export function formatEnvVar(envVar: VercelEnvironmentVariable): string {
-  const targets = envVar.target.join(', ');
-  const maskedValue = envVar.type === 'plain' ? envVar.value : '***ENCRYPTED***';
+  const key = envVar.key || 'Unknown';
+  const targets = Array.isArray(envVar.target) ? envVar.target.join(', ') : (envVar.target || 'Unknown');
+  const maskedValue = envVar.type === 'plain' ? (envVar.value || 'N/A') : '***ENCRYPTED***';
+  const type = envVar.type || 'Unknown';
   const created = envVar.createdAt ? formatTimestamp(envVar.createdAt) : 'Unknown';
-  return `🔐 ${envVar.key}=${maskedValue} [${targets}] (${envVar.type}) - Created: ${created}`;
+  return `🔐 ${key}=${maskedValue} [${targets}] (${type}) - Created: ${created}`;
 }
 
 /**

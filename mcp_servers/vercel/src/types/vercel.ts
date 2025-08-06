@@ -53,6 +53,7 @@ export interface VercelProject {
 export interface GitSource {
   type: 'github' | 'gitlab' | 'bitbucket';
   repo: string;
+  repoId?: number;
   ref?: string;
   sha?: string;
   prId?: number;
@@ -166,6 +167,7 @@ export interface CreateDeploymentRequest {
   gitSource?: {
     type: 'github' | 'gitlab' | 'bitbucket';
     repo: string;
+    repoId?: number;
     ref?: string;
   };
   projectSettings?: {

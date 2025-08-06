@@ -123,6 +123,7 @@ class VercelMCPServer {
                 properties: {
                   type: { type: 'string', enum: ['github', 'gitlab', 'bitbucket'] },
                   repo: { type: 'string', description: 'Repository in format owner/repo' },
+                  repoId: { type: 'number', description: 'Repository ID (will be auto-resolved if not provided)' },
                   ref: { type: 'string', description: 'Git branch, tag, or commit SHA' }
                 }
               },
@@ -287,12 +288,11 @@ class VercelMCPServer {
             type: 'object',
             properties: {
               name: { type: 'string', description: 'Domain name (e.g., example.com)' },
-              projectId: { type: 'string', description: 'Project ID to add domain to' },
               redirect: { type: 'string', description: 'Redirect URL' },
               redirectStatusCode: { type: 'number', description: 'HTTP status code for redirect' },
               gitBranch: { type: 'string', description: 'Git branch for this domain' }
             },
-            required: ['name', 'projectId']
+            required: ['name']
           }
         },
         {
@@ -498,8 +498,19 @@ class VercelMCPServer {
       throw new Error(errorMessage);
     }
 
-    const data = await response.json();
-    return data as T;
+    // Handle empty responses for DELETE operations
+    if (options.method === 'DELETE' && response.status === 204) {
+      return {} as T;
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const data = await response.json();
+      return data as T;
+    } else {
+      // Return empty object for non-JSON responses
+      return {} as T;
+    }
   }
 
   // Deployment tools implementation
@@ -532,31 +543,60 @@ class VercelMCPServer {
 
   private async getDeployment(args: any) {
     const validatedArgs = validateInput(GetDeploymentSchema, args);
+    let deploymentId = validatedArgs.deploymentId;
+    let deployment: VercelDeployment | null = null;
     
-    const endpoint = `/v13/deployments/${validatedArgs.deploymentId}`;
-    const deployment = await this.makeRequest<VercelDeployment>(endpoint);
-
+    // First, try to find the deployment from the list (more complete data)
+    if (deploymentId && deploymentId.includes('-')) {
+      const deploymentsResp = await this.makeRequest<{ deployments: VercelDeployment[] }>(`/v6/deployments?limit=50`);
+      const found = deploymentsResp.deployments.find(d => 
+        d.url === deploymentId || 
+        d.alias?.includes(deploymentId) ||
+        d.uid === deploymentId
+      );
+      if (found) {
+        deployment = found;
+        deploymentId = found.uid;
+      }
+    }
+    
+    // If not found or direct ID provided, fetch individual deployment
+    if (!deployment) {
+      if (!deploymentId) {
+        return { content: [{ type: 'text', text: 'Error: Deployment ID not found for provided value.' }] };
+      }
+      try {
+        const endpoint = `/v13/deployments/${deploymentId}`;
+        deployment = await this.makeRequest<VercelDeployment>(endpoint);
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Error: Could not fetch deployment details. ${sanitizeErrorMessage(error)}` }] };
+      }
+    }
+    
     const details = [
       `🚀 Deployment Details`,
       ``,
-      `ID: ${deployment.uid}`,
-      `Name: ${deployment.name}`,
-      `URL: ${deployment.url}`,
-      `State: ${deployment.state}`,
-      `Created: ${new Date(deployment.created).toISOString()}`,
+      `ID: ${deployment.uid || deploymentId}`,
+      `Name: ${deployment.name || 'N/A'}`,
+      `URL: ${deployment.url || 'N/A'}`,
+      `State: ${deployment.state || 'N/A'}`,
+      `Created: ${deployment.created ? new Date(deployment.created).toISOString() : 'N/A'}`,
       `Project ID: ${deployment.projectId || 'N/A'}`,
       `Target: ${deployment.target || 'N/A'}`,
       `Type: ${deployment.type || 'N/A'}`
     ];
-
+    
     if (deployment.gitSource) {
-      details.push(`Git Source: ${deployment.gitSource.type}:${deployment.gitSource.repo}@${deployment.gitSource.ref || 'main'}`);
+      const gitRepo = deployment.gitSource.repo || 'N/A';
+      const gitRef = deployment.gitSource.ref || 'main';
+      const gitType = deployment.gitSource.type || 'N/A';
+      details.push(`Git Source: ${gitType}:${gitRepo}@${gitRef}`);
     }
-
+    
     if (deployment.alias && deployment.alias.length > 0) {
       details.push(`Aliases: ${deployment.alias.join(', ')}`);
     }
-
+    
     return {
       content: [
         {
@@ -570,42 +610,126 @@ class VercelMCPServer {
   private async createDeployment(args: any) {
     const validatedArgs = validateInput(CreateDeploymentSchema, args);
 
+    // If gitSource is provided, we need to resolve the repoId
+    let gitSource = validatedArgs.gitSource;
+    if (gitSource && gitSource.repo && !gitSource.repoId) {
+      try {
+        // Try to find an existing project with the same repo to get repoId
+        const projectsResp = await this.makeRequest<{ projects: VercelProject[] }>(`/v9/projects?limit=100`);
+        const matchingProject = projectsResp.projects.find(p => 
+          p.gitRepository && 
+          p.gitRepository.repo === gitSource!.repo && 
+          p.gitRepository.type === gitSource!.type
+        );
+        
+        if (matchingProject && matchingProject.gitRepository?.repoId) {
+          gitSource = {
+            ...gitSource,
+            repoId: matchingProject.gitRepository.repoId
+          };
+        } else {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `❌ Failed to create deployment: Could not find repoId for ${gitSource.repo}.\n\n` +
+                      `Solutions:\n` +
+                      `1. Create a project with this repository first using create_project\n` +
+                      `2. Provide the repoId manually in the gitSource\n` +
+                      `3. Use the Vercel CLI: vercel --prod\n\n` +
+                      `Note: Direct deployments via API require either an existing project or manual repoId.`
+              }
+            ]
+          };
+        }
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `❌ Failed to resolve repository: ${sanitizeErrorMessage(error)}`
+            }
+          ]
+        };
+      }
+    }
+
+    // If no gitSource provided, inform user about requirements
+    if (!gitSource && !validatedArgs.files) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Failed to create deployment: Either 'gitSource' or 'files' must be provided.\n\n` +
+                  `For Git deployments:\n` +
+                  `- Use create_deployment with gitSource containing repo and type\n` +
+                  `- Ensure you have a project with this repository already created\n\n` +
+                  `For file uploads:\n` +
+                  `- Provide files array with file content (advanced usage)`
+          }
+        ]
+      };
+    }
+
     const deploymentData: CreateDeploymentRequest = {
       name: validatedArgs.name,
-      ...(validatedArgs.gitSource && { gitSource: validatedArgs.gitSource }),
+      ...(gitSource && { gitSource }),
+      ...(validatedArgs.files && { files: validatedArgs.files }),
       ...(validatedArgs.target && { target: validatedArgs.target }),
       ...(validatedArgs.projectSettings && { projectSettings: validatedArgs.projectSettings }),
       ...(validatedArgs.env && { env: validatedArgs.env }),
       ...(validatedArgs.meta && { meta: validatedArgs.meta })
     };
 
-    const endpoint = '/v13/deployments';
-    const deployment = await this.makeRequest<VercelDeployment>(endpoint, {
-      method: 'POST',
-      body: JSON.stringify(deploymentData)
-    });
+    try {
+      const endpoint = '/v13/deployments';
+      const deployment = await this.makeRequest<VercelDeployment>(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(deploymentData)
+      });
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `✅ Deployment created successfully!\n\n${formatDeployment(deployment)}\n\nYou can monitor the deployment at: ${deployment.url}`
-        }
-      ]
-    };
+      const deploymentUrl = deployment.url || 'N/A';
+      const deploymentDetails = formatDeployment(deployment);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `✅ Deployment created successfully!\n\n${deploymentDetails}\n\nYou can monitor the deployment at: ${deploymentUrl}`
+          }
+        ]
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Failed to create deployment: ${sanitizeErrorMessage(error)}\n\n` +
+                  `Tip: Most deployments are easier to create through the Vercel dashboard or CLI.`
+          }
+        ]
+      };
+    }
   }
 
   private async cancelDeployment(args: any) {
     const validatedArgs = validateInput(CancelDeploymentSchema, args);
-    
-    const endpoint = `/v12/deployments/${validatedArgs.deploymentId}`;
+    let deploymentId = validatedArgs.deploymentId;
+    if (deploymentId && deploymentId.includes('-')) {
+      const deploymentsResp = await this.makeRequest<{ deployments: VercelDeployment[] }>(`/v6/deployments?limit=20`);
+      const found = deploymentsResp.deployments.find(d => d.url === deploymentId || d.alias?.includes(deploymentId));
+      if (found) deploymentId = found.uid;
+    }
+    if (!deploymentId) {
+      return { content: [{ type: 'text', text: 'Error: Deployment ID not found for provided value.' }] };
+    }
+    const endpoint = `/v12/deployments/${deploymentId}`;
     await this.makeRequest(endpoint, { method: 'DELETE' });
-
     return {
       content: [
         {
           type: 'text',
-          text: `✅ Deployment ${validatedArgs.deploymentId} has been canceled.`
+          text: `✅ Deployment ${deploymentId} has been canceled.`
         }
       ]
     };
@@ -613,19 +737,30 @@ class VercelMCPServer {
 
   private async getDeploymentLogs(args: any) {
     const validatedArgs = validateInput(GetDeploymentLogsSchema, args);
-    
+    let deploymentId = validatedArgs.deploymentId;
+    if (deploymentId && deploymentId.includes('-')) {
+      const deploymentsResp = await this.makeRequest<{ deployments: VercelDeployment[] }>(`/v6/deployments?limit=20`);
+      const found = deploymentsResp.deployments.find(d => d.url === deploymentId || d.alias?.includes(deploymentId));
+      if (found) deploymentId = found.uid;
+    }
+    if (!deploymentId) {
+      return { content: [{ type: 'text', text: 'Error: Deployment ID not found for provided value.' }] };
+    }
     const queryParams = new URLSearchParams();
     if (validatedArgs.follow) queryParams.set('follow', 'true');
     if (validatedArgs.since) queryParams.set('since', validatedArgs.since.toString());
     if (validatedArgs.until) queryParams.set('until', validatedArgs.until.toString());
-
-    const endpoint = `/v2/deployments/${validatedArgs.deploymentId}/events?${queryParams.toString()}`;
-    const response = await this.makeRequest<DeploymentLog>(endpoint);
-
-    const formattedLogs = response.data
-      .map(log => `[${new Date(log.timestamp).toISOString()}] ${log.type.toUpperCase()}: ${log.message}`)
-      .join('\n');
-
+    const endpoint = `/v2/deployments/${deploymentId}/events?${queryParams.toString()}`;
+    const response = await this.makeRequest<any>(endpoint);
+    const logsData = response.data || response || [];
+    let formattedLogs = 'No logs data available';
+    if (Array.isArray(logsData)) {
+      formattedLogs = logsData.map(log => {
+        let ts = 'N/A';
+        try { ts = log.timestamp ? new Date(log.timestamp).toISOString() : 'N/A'; } catch { ts = 'N/A'; }
+        return `[${ts}] ${log.type ? log.type.toUpperCase() : 'LOG'}: ${log.message || ''}`;
+      }).join('\n');
+    }
     return {
       content: [
         {
@@ -763,15 +898,24 @@ class VercelMCPServer {
 
   private async deleteProject(args: any) {
     const validatedArgs = validateInput(DeleteProjectSchema, args);
+    let projectId = validatedArgs.projectId;
+    if (projectId && !projectId.startsWith('prj_')) {
+      const projectsResp = await this.makeRequest<{ projects: VercelProject[] }>(`/v9/projects?limit=20`);
+      const found = projectsResp.projects.find(p => p.name === projectId);
+      if (found) projectId = found.id;
+    }
+    if (!projectId) {
+      return { content: [{ type: 'text', text: 'Error: Project ID not found for provided value.' }] };
+    }
     
-    const endpoint = `/v9/projects/${validatedArgs.projectId}`;
-    await this.makeRequest(endpoint, { method: 'DELETE' });
+    const endpoint = `/v9/projects/${projectId}`;
+    const response = await this.makeRequest(endpoint, { method: 'DELETE' });
 
     return {
       content: [
         {
           type: 'text',
-          text: `✅ Project ${validatedArgs.projectId} has been deleted permanently.`
+          text: `✅ Project ${projectId} has been deleted permanently.`
         }
       ]
     };
@@ -805,21 +949,18 @@ class VercelMCPServer {
 
   private async addDomain(args: any) {
     const validatedArgs = validateInput(AddDomainSchema, args);
-
-    const domainData = {
+    const domainData: any = {
       name: validatedArgs.name,
-      projectId: validatedArgs.projectId,
       ...(validatedArgs.redirect && { redirect: validatedArgs.redirect }),
       ...(validatedArgs.redirectStatusCode && { redirectStatusCode: validatedArgs.redirectStatusCode }),
       ...(validatedArgs.gitBranch && { gitBranch: validatedArgs.gitBranch })
     };
-
+    if (domainData.projectId) delete domainData.projectId;
     const endpoint = '/v5/domains';
     const domain = await this.makeRequest<VercelDomain>(endpoint, {
       method: 'POST',
       body: JSON.stringify(domainData)
     });
-
     return {
       content: [
         {
@@ -836,15 +977,17 @@ class VercelMCPServer {
     const endpoint = `/v6/domains/${validatedArgs.domainName}/verify`;
     const response = await this.makeRequest<VercelDomain>(endpoint, { method: 'POST' });
 
-    const verificationDetails = response.verification
-      ?.map(v => `  ${v.type}: ${v.value} (${v.reason})`)
-      .join('\n') || 'No verification records';
+    const domainName = response.name || validatedArgs.domainName;
+    const isVerified = response.verified !== undefined ? response.verified : false;
+    const verificationDetails = response.verification && response.verification.length > 0
+      ? response.verification.map(v => `  ${v.type}: ${v.value} (${v.reason})`).join('\n')
+      : 'No verification records';
 
     return {
       content: [
         {
           type: 'text',
-          text: `🔍 Domain Verification Status:\n\nDomain: ${response.name}\nVerified: ${response.verified ? '✅ Yes' : '❌ No'}\n\nVerification Records:\n${verificationDetails}`
+          text: `🔍 Domain Verification Status:\n\nDomain: ${domainName}\nVerified: ${isVerified ? '✅ Yes' : '❌ No'}\n\nVerification Records:\n${verificationDetails}`
         }
       ]
     };
@@ -869,11 +1012,20 @@ class VercelMCPServer {
   // Environment variables tools implementation
   private async listEnvVars(args: any) {
     const validatedArgs = validateInput(ListEnvVarsSchema, args);
+    let projectId = validatedArgs.projectId;
+    if (projectId && !projectId.startsWith('prj_')) {
+      const projectsResp = await this.makeRequest<{ projects: VercelProject[] }>(`/v9/projects?limit=20`);
+      const found = projectsResp.projects.find(p => p.name === projectId);
+      if (found) projectId = found.id;
+    }
+    if (!projectId) {
+      return { content: [{ type: 'text', text: 'Error: Project ID not found for provided value.' }] };
+    }
     
     const queryParams = new URLSearchParams();
     if (validatedArgs.decrypt) queryParams.set('decrypt', 'true');
 
-    const endpoint = `/v8/projects/${validatedArgs.projectId}/env?${queryParams.toString()}`;
+    const endpoint = `/v8/projects/${projectId}/env?${queryParams.toString()}`;
     const response = await this.makeRequest<{ envs: VercelEnvironmentVariable[] }>(endpoint);
 
     const formattedEnvVars = response.envs
@@ -892,7 +1044,15 @@ class VercelMCPServer {
 
   private async createEnvVar(args: any) {
     const validatedArgs = validateInput(CreateEnvVarSchema, args);
-
+    let projectId = validatedArgs.projectId;
+    if (projectId && !projectId.startsWith('prj_')) {
+      const projectsResp = await this.makeRequest<{ projects: VercelProject[] }>(`/v9/projects?limit=20`);
+      const found = projectsResp.projects.find(p => p.name === projectId);
+      if (found) projectId = found.id;
+    }
+    if (!projectId) {
+      return { content: [{ type: 'text', text: 'Error: Project ID not found for provided value.' }] };
+    }
     const envVarData = {
       key: validatedArgs.key,
       value: validatedArgs.value,
@@ -900,13 +1060,11 @@ class VercelMCPServer {
       type: validatedArgs.type || 'encrypted',
       ...(validatedArgs.gitBranch && { gitBranch: validatedArgs.gitBranch })
     };
-
-    const endpoint = `/v10/projects/${validatedArgs.projectId}/env`;
+    const endpoint = `/v10/projects/${projectId}/env`;
     const envVar = await this.makeRequest<VercelEnvironmentVariable>(endpoint, {
       method: 'POST',
       body: JSON.stringify(envVarData)
     });
-
     return {
       content: [
         {
@@ -919,20 +1077,41 @@ class VercelMCPServer {
 
   private async updateEnvVar(args: any) {
     const validatedArgs = validateInput(UpdateEnvVarSchema, args);
-
+    let projectId = validatedArgs.projectId;
+    if (projectId && !projectId.startsWith('prj_')) {
+      const projectsResp = await this.makeRequest<{ projects: VercelProject[] }>(`/v9/projects?limit=20`);
+      const found = projectsResp.projects.find(p => p.name === projectId);
+      if (found) projectId = found.id;
+    }
+    if (!projectId) {
+      return { content: [{ type: 'text', text: 'Error: Project ID not found for provided value.' }] };
+    }
+    
+    // If envVarId is not a proper ID, try to find it by key name
+    let envVarId = validatedArgs.envVarId;
+    if (!envVarId.startsWith('env_')) {
+      const envVarsResp = await this.makeRequest<{ envs: VercelEnvironmentVariable[] }>(`/v8/projects/${projectId}/env`);
+      const found = envVarsResp.envs.find(env => env.key === envVarId);
+      if (found) {
+        // Try different possible ID fields
+        envVarId = found.id || found.configurationId || found.key;
+      }
+    }
+    if (!envVarId) {
+      return { content: [{ type: 'text', text: 'Error: Environment variable ID not found for provided value.' }] };
+    }
+    
     const updateData: any = {};
     if (validatedArgs.key) updateData.key = validatedArgs.key;
     if (validatedArgs.value) updateData.value = validatedArgs.value;
     if (validatedArgs.target) updateData.target = validatedArgs.target;
     if (validatedArgs.type) updateData.type = validatedArgs.type;
     if (validatedArgs.gitBranch) updateData.gitBranch = validatedArgs.gitBranch;
-
-    const endpoint = `/v9/projects/${validatedArgs.projectId}/env/${validatedArgs.envVarId}`;
+    const endpoint = `/v9/projects/${projectId}/env/${envVarId}`;
     const envVar = await this.makeRequest<VercelEnvironmentVariable>(endpoint, {
       method: 'PATCH',
       body: JSON.stringify(updateData)
     });
-
     return {
       content: [
         {
@@ -945,15 +1124,37 @@ class VercelMCPServer {
 
   private async deleteEnvVar(args: any) {
     const validatedArgs = validateInput(DeleteEnvVarSchema, args);
+    let projectId = validatedArgs.projectId;
+    if (projectId && !projectId.startsWith('prj_')) {
+      const projectsResp = await this.makeRequest<{ projects: VercelProject[] }>(`/v9/projects?limit=20`);
+      const found = projectsResp.projects.find(p => p.name === projectId);
+      if (found) projectId = found.id;
+    }
+    if (!projectId) {
+      return { content: [{ type: 'text', text: 'Error: Project ID not found for provided value.' }] };
+    }
     
-    const endpoint = `/v9/projects/${validatedArgs.projectId}/env/${validatedArgs.envVarId}`;
+    // If envVarId is not a proper ID, try to find it by key name
+    let envVarId = validatedArgs.envVarId;
+    if (!envVarId.startsWith('env_')) {
+      const envVarsResp = await this.makeRequest<{ envs: VercelEnvironmentVariable[] }>(`/v8/projects/${projectId}/env`);
+      const found = envVarsResp.envs.find(env => env.key === envVarId);
+      if (found) {
+        // Try different possible ID fields
+        envVarId = found.id || found.configurationId || found.key;
+      }
+    }
+    if (!envVarId) {
+      return { content: [{ type: 'text', text: 'Error: Environment variable ID not found for provided value.' }] };
+    }
+    
+    const endpoint = `/v9/projects/${projectId}/env/${envVarId}`;
     await this.makeRequest(endpoint, { method: 'DELETE' });
-
     return {
       content: [
         {
           type: 'text',
-          text: `✅ Environment variable ${validatedArgs.envVarId} has been deleted.`
+          text: `✅ Environment variable ${envVarId} has been deleted.`
         }
       ]
     };
@@ -974,6 +1175,9 @@ async function main() {
     process.exit(1);
   }
 }
+
+// Export the class for testing
+export { VercelMCPServer };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(console.error);
