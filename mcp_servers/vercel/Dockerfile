@@ -1,37 +1,37 @@
-FROM node:18-alpine AS builder
+# Stage 1: Build the application
+FROM node:20.19-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy only package files first (relative to context: mcp_servers/vercel)
+COPY package.json package-lock.json ./
+
 
 # Install all dependencies
-RUN npm ci
+RUN npm install --ignore-scripts
 
-# Copy the rest of the application code
+# Copy rest of the source code
 COPY . .
 
-# Build the application
+
+# Build TypeScript
 RUN npm run build
 
-
-FROM node:18-alpine AS production
+# Stage 2: Production image
+FROM node:20-alpine AS release
 
 WORKDIR /app
 
-# Copy only the necessary files from the builder stage
-COPY --from=builder /app/package*.json ./
+# Copy only necessary built files and package files
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/package-lock.json ./package-lock.json
+
 
 # Install only production dependencies
-RUN npm ci --only=production
+RUN npm ci --ignore-scripts --omit=dev
 
+EXPOSE 5000
 
-# Expose port
-EXPOSE 3000
-
-# Set environment
-ENV NODE_ENV=production
-
-# Start the server
-CMD ["node", "dist/server.js"]
+# Run the application
+ENTRYPOINT ["node", "dist/index.js"]

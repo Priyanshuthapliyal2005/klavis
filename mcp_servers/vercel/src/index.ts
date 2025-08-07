@@ -9,7 +9,10 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AsyncLocalStorage } from 'async_hooks';
-import dotenv from 'dotenv';
+// Load environment variables only in development
+if (process.env.NODE_ENV !== 'production') {
+  import('dotenv').then(dotenv => dotenv.config());
+}
 import { 
   VercelDeployment, 
   VercelProject, 
@@ -43,8 +46,7 @@ import {
   sanitizeErrorMessage
 } from './util.js';
 
-// Load environment variables
-dotenv.config();
+
 
 // Create AsyncLocalStorage for request context
 const asyncLocalStorage = new AsyncLocalStorage<{
@@ -1357,7 +1359,7 @@ app.get('/', (req, res) => {
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-if (require.main === module) {
+if (import.meta.url === process.argv[1] || import.meta.url === `file://${process.argv[1]}`) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Vercel MCP Server running on port ${PORT}`);
     console.log(`Available endpoints:`);

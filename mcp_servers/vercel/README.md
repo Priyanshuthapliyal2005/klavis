@@ -1,241 +1,128 @@
 # Vercel MCP Server
 
-A Model Context Protocol (MCP) server that provides integration with the Vercel deployment platform. This server enables AI assistants to manage deployments, projects, domains, and environment variables through Vercel's API.
+This server provides a Model Context Protocol (MCP) interface to interact with Vercel projects, deployments, environment variables, and more. It exposes 17+ tools for safe, programmatic management and inspection of your Vercel account.
 
-## Features
+---
 
-### 🚀 Deployment Management
-- **`list_deployments`** - List deployments with filtering by project, state, and time range
-- **`get_deployment`** - Get detailed information about a specific deployment
-- **`create_deployment`** - Create new deployments from Git repositories
-- **`cancel_deployment`** - Cancel in-progress deployments
-- **`get_deployment_logs`** - Retrieve build and function logs
+## Supported Tools
 
-### 📁 Project Management
-- **`list_projects`** - List all accessible projects
-- **`get_project`** - Get detailed project information and settings
-- **`create_project`** - Create new projects from Git repositories
-- **`update_project`** - Update project configuration and settings
-- **`delete_project`** - Remove projects (with confirmation)
+### Project Tools
+1. **list_projects**: List all Vercel projects.
+2. **get_project**: Get details of a specific project.
+3. **create_project**: Create a new Vercel project.
+4. **update_project**: Update project settings (rename, build command, etc).
+5. **delete_project**: Permanently delete a project.
 
-### 🌐 Domain Management
-- **`list_domains`** - List all configured custom domains
-- **`add_domain`** - Add custom domains to projects
-- **`verify_domain`** - Check domain verification status
-- **`remove_domain`** - Remove domains from projects
+### Deployment Tools
+6. **list_deployments**: List deployments (all or per project).
+7. **get_deployment**: Get details of a specific deployment.
+8. **get_deployment_logs**: View build/runtime logs for a deployment.
+9. **get_deployment_events**: View deployment events and status updates.
+10. **search_deployments**: Search deployments by name or query.
+11. **cancel_deployment**: Cancel a building deployment (safe for non-critical only).
 
-### ⚙️ Environment Variables
-- **`list_env_vars`** - List project environment variables
-- **`create_env_var`** - Add new environment variables
-- **`update_env_var`** - Modify existing environment variables
-- **`delete_env_var`** - Remove environment variables
+### Domain Tools
+12. **list_domains**: List all configured custom domains.
 
-## Prerequisites
+### Environment Variable Tools
+13. **list_env_vars**: List environment variables for a project.
+14. **create_env_var**: Add a new environment variable (safe for development target).
+15. **update_env_var**: Update an existing environment variable.
+16. **delete_env_var**: Delete an environment variable.
 
-- **Node.js:** Version 18 or higher
-- **Vercel API Token:** Get from [Vercel Account Settings](https://vercel.com/account/tokens)
-- **Docker:** Optional, for containerized deployment
+### Team Tools
+17. **list_teams**: List all accessible Vercel teams (if enabled).
 
-## Installation
+---
 
-### Option 1: Using Docker (Recommended)
+## Setup Instructions
 
-1. **Build the Docker image:**
-   ```bash
-   docker build -t vercel-mcp-server .
-   ```
+### 1. Environment Variables
 
-2. **Run the container:**
-   ```bash
-   docker run -p 3000:3000 --env-file .env vercel-mcp-server
-   ```
+> **Why is `VERCEL_API_TOKEN` required?**
+>
+> The `VERCEL_API_TOKEN` environment variable is your Vercel API token. The MCP server uses this key to authenticate and make authorized requests to the Vercel API on your behalf. Without it, the server cannot access or manage your Vercel projects, deployments, or environment variables. This is why you must provide it in both Docker and local setups.
 
-### Option 2: Local Development
+Copy `.env.example` to `.env` and fill in your Vercel API token:
 
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-2. **Build the server:**
-   ```bash
-   npm run build
-   ```
-
-3. **Start the server:**
-   ```bash
-   npm start
-   ```
-
-## Configuration
-
-Create a `.env` file in the root directory:
-
-```env
-# Required - Get from https://vercel.com/account/tokens
-VERCEL_API_TOKEN=your_vercel_api_token_here
-
-# Optional - For team-based operations
-VERCEL_TEAM_ID=your_team_id_here
+```sh
+cp .env.example .env
+# Edit .env and set VERCEL_API_TOKEN=your-vercel-api-token
 ```
 
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `VERCEL_API_TOKEN` | Yes | Your Vercel API token for authentication |
-| `VERCEL_TEAM_ID` | No | Team ID for team-based operations |
-
-## Usage Examples
-
-### List Recent Deployments
-```typescript
-// List the 10 most recent deployments
-await client.callTool('list_deployments', { limit: 10 });
-
-// List deployments for a specific project
-await client.callTool('list_deployments', { 
-  projectId: 'prj_abc123',
-  state: 'READY'
-});
+Example `.env`:
+```
+PORT=5000
+NODE_ENV=production
+VERCEL_API_TOKEN=your-vercel-api-token
 ```
 
-### Create a New Deployment
-```typescript
-await client.callTool('create_deployment', {
-  name: 'my-awesome-app',
-  gitSource: {
-    type: 'github',
-    repo: 'username/my-repo',
-    ref: 'main'
-  },
-  target: 'production'
-});
+---
+
+### 2. Docker Setup
+
+Build and run the server using Docker from the root repository:
+
+```sh
+docker build -t vercel-mcp -f mcp_servers/vercel/Dockerfile mcp_servers/vercel
 ```
 
-### Manage Environment Variables
-```typescript
-// Add a new environment variable
-await client.callTool('create_env_var', {
-  projectId: 'prj_abc123',
-  key: 'DATABASE_URL',
-  value: 'postgresql://...',
-  target: ['production', 'preview']
-});
+To run the container, you must provide your API token as an environment variable:
 
-// List all environment variables
-await client.callTool('list_env_vars', {
-  projectId: 'prj_abc123'
-});
+```sh
+docker run -p 5000:5000 -e PORT=5000 -e NODE_ENV=production -e VERCEL_API_TOKEN=your-vercel-api-token vercel-mcp
 ```
 
-### Domain Management
-```typescript
-// Add a custom domain
-await client.callTool('add_domain', {
-  name: 'mydomain.com',
-  projectId: 'prj_abc123'
-});
+> **Note:**
+> The `-e VERCEL_API_TOKEN=...` flag is required so the server can authenticate with Vercel. Replace `your-vercel-api-token` with your actual Vercel API token.
 
-// Verify domain status
-await client.callTool('verify_domain', {
-  domainName: 'mydomain.com'
-});
-```
+---
 
-## API Integration
+### 3. Local (Non-Docker) Setup
 
-This server integrates with the following Vercel API endpoints:
-
-- **Deployments:** `/v6/deployments`, `/v13/deployments`, `/v12/deployments`
-- **Projects:** `/v9/projects`, `/v10/projects`
-- **Domains:** `/v4/domains`, `/v5/domains`, `/v6/domains`
-- **Environment Variables:** `/v8/projects/{id}/env`, `/v9/projects/{id}/env`, `/v10/projects/{id}/env`
-
-## Development
-
-### Running Tests
-```bash
-# Run all tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run E2E tests
-npm run test:e2e
-```
-
-### Code Quality
-```bash
-# Lint code
-npm run lint
-
-# Build for production
+```sh
+cd mcp_servers/vercel
+npm install
 npm run build
-
-# Development with hot reload
-npm run dev
+npm start
 ```
 
-### Project Structure
+---
+
+### 4. MCP Server Integration
+
+To connect your LLM or MCP client, add the following to your `mcp.json`:
+
+```json
+{
+	"servers": {
+		"vercel": {
+			"type": "http",
+			"url": "http://0.0.0.0:5000/mcp",
+			"headers": {
+				"x-api-token": "your-vercel-api-key"
+			}
+		}
+	}
+}
 ```
-src/
-├── types/
-│   └── vercel.ts          # TypeScript type definitions
-├── server.ts              # Main MCP server implementation
-├── mcp.ts                 # MCP-specific utilities and schemas
-└── util.ts                # Helper functions and formatters
 
-test/
-├── server.test.ts         # Unit tests
-├── mocks.ts               # Test mocks and fixtures
-├── extensions.ts          # Test extensions
-└── extensions.d.ts        # Test type extensions
-```
+---
 
-## Error Handling
+## Testing
 
-The server includes comprehensive error handling for:
+- All tools can be tested via the MCP interface (see tool list above).
+- For safe testing, use development-only environment variables and create/delete test projects as shown in the tool descriptions.
+- Both Docker and non-Docker setups are supported and tested.
 
-- **Authentication errors** - Invalid API tokens
-- **Rate limiting** - Automatic retry with exponential backoff
-- **Network errors** - Connection timeouts and failures
-- **Validation errors** - Invalid input parameters
-- **API errors** - Vercel API error responses
+---
 
-## Security Considerations
+## Safety Notes
+- Your main projects are safe if you follow the recommended test flow.
+- Destructive operations (delete, update) are only performed on test projects/variables.
+- Always use development targets for environment variable tests unless you intend to affect production.
 
-- **API Token Security:** Store your Vercel API token securely
-- **Team Access:** Use team-scoped tokens when working with team projects
-- **Environment Variables:** Never commit sensitive data to version control
-- **Network Security:** Use HTTPS for all API communications
+---
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Make your changes and add tests
-4. Ensure all tests pass: `npm test`
-5. Commit your changes: `git commit -m 'Add amazing feature'`
-6. Push to the branch: `git push origin feature/amazing-feature`
-7. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-- **Documentation:** [Vercel API Documentation](https://vercel.com/docs/rest-api)
-- **Issues:** [GitHub Issues](https://github.com/klavis-ai/klavis/issues)
-- **Discord:** [Klavis AI Community](https://discord.gg/klavis-ai)
-
-## Changelog
-
-### v1.0.0
-- Initial release with full Vercel API integration
-- Support for deployments, projects, domains, and environment variables
-- Comprehensive error handling and validation
-- Docker support for easy deployment
-- Complete test suite with 90%+ coverage
+## Maintainer
+- @Priyanshuthapliyal2005
