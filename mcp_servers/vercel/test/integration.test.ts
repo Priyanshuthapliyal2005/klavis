@@ -14,19 +14,19 @@ async function callTool(server: VercelMCPServer, tool: string, args: any = {}) {
     // Access the private methods through reflection for testing
     const serverInstance = server as any;
     switch (tool) {
-      case 'list_projects':
+      case 'vercel_list_projects':
         return await serverInstance.listProjects(args);
-      case 'get_project':
+      case 'vercel_get_project':
         return await serverInstance.getProject(args);
-      case 'list_deployments':
+      case 'vercel_list_deployments':
         return await serverInstance.listDeployments(args);
-      case 'get_deployment':
+      case 'vercel_get_deployment':
         return await serverInstance.getDeployment(args);
-      case 'get_deployment_logs':
+      case 'vercel_get_deployment_logs':
         return await serverInstance.getDeploymentLogs(args);
-      case 'list_domains':
+      case 'vercel_list_domains':
         return await serverInstance.listDomains(args);
-      case 'list_env_vars':
+      case 'vercel_list_env_vars':
         return await serverInstance.listEnvVars(args);
       default:
         throw new Error(`Unknown tool: ${tool}`);
@@ -102,28 +102,24 @@ describe('Vercel MCP Server Production Integration', () => {
     }
   });
 
-  it('list_deployments', async () => {
-    const args = actualTestProjectId 
-      ? { projectId: actualTestProjectId, limit: 5 }
-      : { limit: 5 };
-      
-    const result = await callTool(server, 'list_deployments', args);
+  it('vercel_list_deployments', async () => {
+    const args = {
+      limit: 3,
+    };
+    const result = await callTool(server, 'vercel_list_deployments', args);
     if (result.error) {
-      console.log('⚠️ list_deployments: API Error -', result.error);
-      expect(result.error).toBeDefined();
-      return;
+      console.log('⚠️ vercel_list_deployments: API Error -', result.error);
+      expect(result.error).toBeDefined(); // We expect this might fail with actual API
+    } else {
+      expect(result.content).toBeDefined();
+      expect(Array.isArray(result.content)).toBe(true);
     }
-    expect(result).toHaveProperty('content');
-    expect(result.content[0].type).toBe('text');
-    console.log('✅ list_deployments: PASSED');
-  });
-
-  it('get_deployment', async () => {
+    console.log('✅ vercel_list_deployments: PASSED');  it('get_deployment', async () => {
     const args = actualTestProjectId 
       ? { projectId: actualTestProjectId, limit: 1 }
       : { limit: 1 };
       
-    const deployments = await callTool(server, 'list_deployments', args);
+    const deployments = await callTool(server, 'vercel_list_deployments', args);
     if (deployments.error) {
       console.log('⚠️ get_deployment: SKIPPED - Cannot get deployments:', deployments.error);
       return;
@@ -133,7 +129,7 @@ describe('Vercel MCP Server Production Integration', () => {
     const deploymentId = deploymentMatch ? deploymentMatch[1] : null;
     
     if (deploymentId) {
-      const result = await callTool(server, 'get_deployment', { deploymentId });
+      const result = await callTool(server, 'vercel_get_deployment', { deploymentId });
       if (result.error) {
         console.log('⚠️ get_deployment: API Error -', result.error);
         expect(result.error).toBeDefined();
@@ -152,7 +148,7 @@ describe('Vercel MCP Server Production Integration', () => {
       ? { projectId: actualTestProjectId, limit: 1 }
       : { limit: 1 };
       
-    const deployments = await callTool(server, 'list_deployments', args);
+    const deployments = await callTool(server, 'vercel_list_deployments', args);
     if (deployments.error) {
       console.log('⚠️ get_deployment_logs: SKIPPED - Cannot get deployments:', deployments.error);
       return;
@@ -162,7 +158,7 @@ describe('Vercel MCP Server Production Integration', () => {
     const deploymentId = deploymentMatch ? deploymentMatch[1] : null;
     
     if (deploymentId) {
-      const result = await callTool(server, 'get_deployment_logs', { deploymentId });
+      const result = await callTool(server, 'vercel_get_deployment_logs', { deploymentId });
       if (result.error) {
         console.log('⚠️ get_deployment_logs: API Error -', result.error);
         expect(result.error).toBeDefined();

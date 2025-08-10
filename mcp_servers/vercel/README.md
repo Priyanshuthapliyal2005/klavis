@@ -7,31 +7,31 @@ This server provides a Model Context Protocol (MCP) interface to interact with V
 ## Supported Tools
 
 ### Project Tools
-1. **list_projects**: List all Vercel projects.
-2. **get_project**: Get details of a specific project.
-3. **create_project**: Create a new Vercel project.
-4. **update_project**: Update project settings (rename, build command, etc).
-5. **delete_project**: Permanently delete a project.
+1. **vercel_list_projects**: List all Vercel projects.
+2. **vercel_get_project**: Get details of a specific project.
+3. **vercel_create_project**: Create a new Vercel project.
+4. **vercel_update_project**: Update project settings (rename, build command, etc).
+5. **vercel_delete_project**: Permanently delete a project.
 
 ### Deployment Tools
-6. **list_deployments**: List deployments (all or per project).
-7. **get_deployment**: Get details of a specific deployment.
-8. **get_deployment_logs**: View build/runtime logs for a deployment.
-9. **get_deployment_events**: View deployment events and status updates.
-10. **search_deployments**: Search deployments by name or query.
-11. **cancel_deployment**: Cancel a building deployment (safe for non-critical only).
+6. **vercel_list_deployments**: List deployments (all or per project).
+7. **vercel_get_deployment**: Get details of a specific deployment.
+8. **vercel_get_deployment_logs**: View build/runtime logs for a deployment.
+9. **vercel_get_deployment_events**: View deployment events and status updates.
+10. **vercel_search_deployments**: Search deployments by name or query.
+11. **vercel_cancel_deployment**: Cancel a building deployment (safe for non-critical only).
 
 ### Domain Tools
-12. **list_domains**: List all configured custom domains.
+12. **vercel_list_domains**: List all configured custom domains.
 
 ### Environment Variable Tools
-13. **list_env_vars**: List environment variables for a project.
-14. **create_env_var**: Add a new environment variable (safe for development target).
-15. **update_env_var**: Update an existing environment variable.
-16. **delete_env_var**: Delete an environment variable.
+13. **vercel_list_env_vars**: List environment variables for a project.
+14. **vercel_create_env_var**: Add a new environment variable (safe for development target).
+15. **vercel_update_env_var**: Update an existing environment variable.
+16. **vercel_delete_env_var**: Delete an environment variable.
 
 ### Team Tools
-17. **list_teams**: List all accessible Vercel teams (if enabled).
+17. **vercel_list_teams**: List all accessible Vercel teams (if enabled).
 
 ---
 

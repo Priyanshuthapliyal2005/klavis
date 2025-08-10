@@ -147,7 +147,7 @@ class VercelMCPServer {
   constructor() {
     this.server = new Server(
       {
-        name: 'vercel-mcp-server',
+        name: 'vercel_vercel-mcp-server',
         version: '1.0.0',
       },
       {
@@ -166,7 +166,7 @@ class VercelMCPServer {
       tools: [
         // Deployment tools
         {
-          name: 'list_deployments',
+          name: 'vercel_list_deployments',
           description: 'List deployments with optional filtering by project, state, and time range',
           inputSchema: {
             type: 'object',
@@ -184,7 +184,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'get_deployment',
+          name: 'vercel_get_deployment',
           description: 'Get detailed information about a specific deployment',
           inputSchema: {
             type: 'object',
@@ -195,7 +195,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'cancel_deployment',
+          name: 'vercel_cancel_deployment',
           description: 'Cancel an in-progress deployment',
           inputSchema: {
             type: 'object',
@@ -206,7 +206,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'get_deployment_logs',
+          name: 'vercel_get_deployment_logs',
           description: 'Retrieve build and function logs for a deployment',
           inputSchema: {
             type: 'object',
@@ -222,7 +222,7 @@ class VercelMCPServer {
 
         // Project management tools
         {
-          name: 'list_projects',
+          name: 'vercel_list_projects',
           description: 'List all accessible projects',
           inputSchema: {
             type: 'object',
@@ -234,7 +234,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'get_project',
+          name: 'vercel_get_project',
           description: 'Get detailed information about a specific project',
           inputSchema: {
             type: 'object',
@@ -245,7 +245,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'create_project',
+          name: 'vercel_create_project',
           description: 'Create a new project from a Git repository',
           inputSchema: {
             type: 'object',
@@ -286,7 +286,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'update_project',
+          name: 'vercel_update_project',
           description: 'Update project configuration and settings',
           inputSchema: {
             type: 'object',
@@ -306,7 +306,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'delete_project',
+          name: 'vercel_delete_project',
           description: 'Delete a project (WARNING: This action cannot be undone)',
           inputSchema: {
             type: 'object',
@@ -319,7 +319,7 @@ class VercelMCPServer {
 
         // Domain management tools
         {
-          name: 'list_domains',
+          name: 'vercel_list_domains',
           description: 'List all configured custom domains',
           inputSchema: {
             type: 'object',
@@ -332,7 +332,7 @@ class VercelMCPServer {
         },
         // Environment variables tools
         {
-          name: 'list_env_vars',
+          name: 'vercel_list_env_vars',
           description: 'List environment variables for a project',
           inputSchema: {
             type: 'object',
@@ -344,7 +344,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'create_env_var',
+          name: 'vercel_create_env_var',
           description: 'Add a new environment variable to a project',
           inputSchema: {
             type: 'object',
@@ -369,7 +369,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'update_env_var',
+          name: 'vercel_update_env_var',
           description: 'Update an existing environment variable',
           inputSchema: {
             type: 'object',
@@ -394,7 +394,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'delete_env_var',
+          name: 'vercel_delete_env_var',
           description: 'Delete an environment variable from a project',
           inputSchema: {
             type: 'object',
@@ -406,7 +406,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'get_deployment_events',
+          name: 'vercel_get_deployment_events',
           description: 'Get real-time deployment events and status updates',
           inputSchema: {
             type: 'object',
@@ -418,7 +418,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'list_teams',
+          name: 'vercel_list_teams',
           description: 'List all teams accessible to the current user',
           inputSchema: {
             type: 'object',
@@ -428,7 +428,7 @@ class VercelMCPServer {
           }
         },
         {
-          name: 'search_deployments',
+          name: 'vercel_search_deployments',
           description: 'Search deployments with advanced filtering',
           inputSchema: {
             type: 'object',
@@ -453,60 +453,60 @@ class VercelMCPServer {
         let result;
         switch (request.params.name) {
           // Deployment tools
-          case 'list_deployments':
+          case 'vercel_list_deployments':
             result = await this.listDeployments(request.params.arguments);
             break;
-          case 'get_deployment':
+          case 'vercel_get_deployment':
             result = await this.getDeployment(request.params.arguments);
             break;
-          case 'cancel_deployment':
+          case 'vercel_cancel_deployment':
             result = await this.cancelDeployment(request.params.arguments);
             break;
-          case 'get_deployment_logs':
+          case 'vercel_get_deployment_logs':
             result = await this.getDeploymentLogs(request.params.arguments);
             break;
 
           // Project management tools
-          case 'list_projects':
+          case 'vercel_list_projects':
             result = await this.listProjects(request.params.arguments);
             break;
-          case 'get_project':
+          case 'vercel_get_project':
             result = await this.getProject(request.params.arguments);
             break;
-          case 'create_project':
+          case 'vercel_create_project':
             result = await this.createProject(request.params.arguments);
             break;
-          case 'update_project':
+          case 'vercel_update_project':
             result = await this.updateProject(request.params.arguments);
             break;
-          case 'delete_project':
+          case 'vercel_delete_project':
             result = await this.deleteProject(request.params.arguments);
             break;
 
           // Domain management tools
-          case 'list_domains':
+          case 'vercel_list_domains':
             result = await this.listDomains(request.params.arguments);
             break;
           // Environment variables tools
-          case 'list_env_vars':
+          case 'vercel_list_env_vars':
             result = await this.listEnvVars(request.params.arguments);
             break;
-          case 'create_env_var':
+          case 'vercel_create_env_var':
             result = await this.createEnvVar(request.params.arguments);
             break;
-          case 'update_env_var':
+          case 'vercel_update_env_var':
             result = await this.updateEnvVar(request.params.arguments);
             break;
-          case 'delete_env_var':
+          case 'vercel_delete_env_var':
             result = await this.deleteEnvVar(request.params.arguments);
             break;
-          case 'get_deployment_events':
+          case 'vercel_get_deployment_events':
             result = await this.getDeploymentEvents(request.params.arguments);
             break;
-          case 'list_teams':
+          case 'vercel_list_teams':
             result = await this.listTeams(request.params.arguments);
             break;
-          case 'search_deployments':
+          case 'vercel_search_deployments':
             result = await this.searchDeployments(request.params.arguments);
             break;
 
@@ -1341,7 +1341,7 @@ app.get('/health', (req, res) => {
 // Root endpoint with API info
 app.get('/', (req, res) => {
   res.json({
-    name: 'Vercel MCP Server',
+    name: 'vercel_Vercel MCP Server',
     version: '1.0.0',
     description: 'Model Context Protocol server for Vercel deployment management',
     endpoints: {
