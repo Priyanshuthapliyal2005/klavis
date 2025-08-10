@@ -37,7 +37,7 @@ import {
   CreateEnvVarSchema,
   UpdateEnvVarSchema,
   DeleteEnvVarSchema
-} from './mcp.js';
+} from './schema.js';
 import {
   formatDeployment,
   formatProject,
@@ -147,7 +147,7 @@ class VercelMCPServer {
   constructor() {
     this.server = new Server(
       {
-        name: 'vercel_vercel-mcp-server',
+        name: 'vercel-mcp-server',
         version: '1.0.0',
       },
       {
