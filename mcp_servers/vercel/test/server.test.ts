@@ -30,7 +30,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
     if (availableProjectId) return availableProjectId;
     
     try {
-      const projectsResult = await callTool('list_projects', { limit: 1 });
+      const projectsResult = await callTool('vercel_list_projects', { limit: 1 });
       if (projectsResult.content && !projectsResult.content[0].text.includes('Error:')) {
         const projectMatch = projectsResult.content[0].text.match(/ID: ([a-zA-Z0-9_-]+)/);
         if (projectMatch) {
@@ -55,47 +55,47 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
       
       switch (toolName) {
         // Deployment tools (5 tools)
-        case 'list_deployments':
+        case 'vercel_list_deployments':
           return await serverInstance.listDeployments(args);
-        case 'get_deployment':
+        case 'vercel_get_deployment':
           return await serverInstance.getDeployment(args);
-        case 'cancel_deployment':
+        case 'vercel_cancel_deployment':
           return await serverInstance.cancelDeployment(args);
-        case 'get_deployment_logs':
+        case 'vercel_get_deployment_logs':
           return await serverInstance.getDeploymentLogs(args);
-        case 'get_deployment_events':
+        case 'vercel_get_deployment_events':
           return await serverInstance.getDeploymentEvents(args);
-        case 'search_deployments':
+        case 'vercel_search_deployments':
           return await serverInstance.searchDeployments(args);
         
         // Project tools (5 tools)
-        case 'list_projects':
+        case 'vercel_list_projects':
           return await serverInstance.listProjects(args);
-        case 'get_project':
+        case 'vercel_get_project':
           return await serverInstance.getProject(args);  
-        case 'create_project':
+        case 'vercel_create_project':
           return await serverInstance.createProject(args);
-        case 'update_project':
+        case 'vercel_update_project':
           return await serverInstance.updateProject(args);
-        case 'delete_project':
+        case 'vercel_delete_project':
           return await serverInstance.deleteProject(args);
         
         // Domain tools (1 tool)
-        case 'list_domains':
+        case 'vercel_list_domains':
           return await serverInstance.listDomains(args);
         
         // Environment variable tools (4 tools)
-        case 'list_env_vars':
+        case 'vercel_list_env_vars':
           return await serverInstance.listEnvVars(args);
-        case 'create_env_var':
+        case 'vercel_create_env_var':
           return await serverInstance.createEnvVar(args);
-        case 'update_env_var':
+        case 'vercel_update_env_var':
           return await serverInstance.updateEnvVar(args);
-        case 'delete_env_var':
+        case 'vercel_delete_env_var':
           return await serverInstance.deleteEnvVar(args);
         
         // Team tools (1 tool)
-        case 'list_teams':
+        case 'vercel_list_teams':
           return await serverInstance.listTeams(args);
         
         default:
@@ -116,7 +116,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
 
   describe('Basic Tool Tests', () => {
     it('should list projects successfully', async () => {
-      const result = await callTool('list_projects', { limit: 5 });
+      const result = await callTool('vercel_list_projects', { limit: 5 });
       
       expect(result).toBeDefined();
       expect(result.content).toBeDefined();
@@ -134,7 +134,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
     });
 
     it('should list deployments successfully', async () => {
-      const result = await callTool('list_deployments', { limit: 3 });
+      const result = await callTool('vercel_list_deployments', { limit: 3 });
       
       expect(result).toBeDefined();
       
@@ -149,7 +149,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
     });
 
     it('should list domains successfully', async () => {
-      const result = await callTool('list_domains', { limit: 10 });
+      const result = await callTool('vercel_list_domains', { limit: 10 });
       
       expect(result).toBeDefined();
       
@@ -172,7 +172,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
         return;
       }
       
-      const result = await callTool('list_env_vars', { projectId });
+      const result = await callTool('vercel_list_env_vars', { projectId });
       
       expect(result).toBeDefined();
       
@@ -187,7 +187,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
 
     it('should handle deployment details for existing deployment', async () => {
       // First get a deployment ID
-      const deploymentsResult = await callTool('list_deployments', { limit: 1 });
+      const deploymentsResult = await callTool('vercel_list_deployments', { limit: 1 });
       
       if (deploymentsResult.content[0].text.includes('Error:')) {
         console.log('⚠️ get_deployment: SKIPPED - Cannot get deployments');
@@ -198,7 +198,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
       
       if (deploymentMatch) {
         const deploymentId = deploymentMatch[1];
-        const result = await callTool('get_deployment', { deploymentId });
+        const result = await callTool('vercel_get_deployment', { deploymentId });
         
         expect(result).toBeDefined();
         
@@ -215,7 +215,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
     });
 
     it('should search deployments successfully', async () => {
-      const result = await callTool('search_deployments', { 
+      const result = await callTool('vercel_search_deployments', { 
         query: 'test',
         limit: 3 
       });
@@ -233,7 +233,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
 
     it('should handle deployment logs for existing deployment', async () => {
       // First get a deployment ID
-      const deploymentsResult = await callTool('list_deployments', { limit: 1 });
+      const deploymentsResult = await callTool('vercel_list_deployments', { limit: 1 });
       
       if (deploymentsResult.content[0].text.includes('Error:')) {
         console.log('⚠️ get_deployment_logs: SKIPPED - Cannot get deployments');
@@ -244,7 +244,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
       
       if (deploymentMatch) {
         const deploymentId = deploymentMatch[1];
-        const result = await callTool('get_deployment_logs', { deploymentId });
+        const result = await callTool('vercel_get_deployment_logs', { deploymentId });
         
         expect(result).toBeDefined();
         
@@ -262,7 +262,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
 
     it('should handle deployment events for existing deployment', async () => {
       // First get a deployment ID
-      const deploymentsResult = await callTool('list_deployments', { limit: 1 });
+      const deploymentsResult = await callTool('vercel_list_deployments', { limit: 1 });
       
       if (deploymentsResult.content[0].text.includes('Error:')) {
         console.log('⚠️ get_deployment_events: SKIPPED - Cannot get deployments');
@@ -273,7 +273,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
       
       if (deploymentMatch) {
         const deploymentId = deploymentMatch[1];
-        const result = await callTool('get_deployment_events', { deploymentId });
+        const result = await callTool('vercel_get_deployment_events', { deploymentId });
         
         expect(result).toBeDefined();
         
@@ -298,7 +298,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
         return;
       }
       
-      const result = await callTool('get_project', { projectId });
+      const result = await callTool('vercel_get_project', { projectId });
       
       expect(result).toBeDefined();
       
@@ -312,7 +312,7 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
     });
 
     it('should list teams successfully', async () => {
-      const result = await callTool('list_teams', { limit: 10 });
+      const result = await callTool('vercel_list_teams', { limit: 10 });
       
       expect(result).toBeDefined();
       
@@ -341,3 +341,4 @@ describe('Vercel MCP Server - Production Integration Tests', () => {
     });
   });
 });
+

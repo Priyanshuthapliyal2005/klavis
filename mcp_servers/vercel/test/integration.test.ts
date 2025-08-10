@@ -49,7 +49,7 @@ describe('Vercel MCP Server Production Integration', () => {
     
     // Try to find any available project dynamically
     try {
-      const result = await callTool(server, 'list_projects', { limit: 5 });
+      const result = await callTool(server, 'vercel_list_projects', { limit: 5 });
       if (!result.error && result.content) {
         const projectMatch = result.content[0].text.match(/ID: ([a-zA-Z0-9_-]+)/);
         if (projectMatch) {
@@ -61,8 +61,8 @@ describe('Vercel MCP Server Production Integration', () => {
     }
   });
 
-  it('list_projects', async () => {
-    const result = await callTool(server, 'list_projects', { limit: 5 });
+  it('vercel_list_projects', async () => {
+    const result = await callTool(server, 'vercel_list_projects', { limit: 5 });
     if (result.error) {
       console.log('⚠️ list_projects: API Error -', result.error);
       expect(result.error).toBeDefined();
@@ -73,10 +73,10 @@ describe('Vercel MCP Server Production Integration', () => {
     console.log('✅ list_projects: PASSED');
   });
 
-  it('get_project', async () => {
+  it('vercel_get_project', async () => {
     if (!actualTestProjectId) {
       // Get any project ID for testing
-      const projectsResult = await callTool(server, 'list_projects', { limit: 1 });
+      const projectsResult = await callTool(server, 'vercel_list_projects', { limit: 1 });
       if (projectsResult.error) {
         console.log('⚠️ get_project: SKIPPED - Cannot get projects:', projectsResult.error);
         return;
@@ -88,7 +88,7 @@ describe('Vercel MCP Server Production Integration', () => {
     }
     
     if (actualTestProjectId) {
-      const result = await callTool(server, 'get_project', { projectId: actualTestProjectId });
+      const result = await callTool(server, 'vercel_get_project', { projectId: actualTestProjectId });
       if (result.error) {
         console.log('⚠️ get_project: API Error -', result.error);
         expect(result.error).toBeDefined();
@@ -114,7 +114,10 @@ describe('Vercel MCP Server Production Integration', () => {
       expect(result.content).toBeDefined();
       expect(Array.isArray(result.content)).toBe(true);
     }
-    console.log('✅ vercel_list_deployments: PASSED');  it('get_deployment', async () => {
+    console.log('✅ vercel_list_deployments: PASSED');
+  });  
+    
+  it('vercel_get_deployment', async () => {
     const args = actualTestProjectId 
       ? { projectId: actualTestProjectId, limit: 1 }
       : { limit: 1 };
@@ -143,7 +146,7 @@ describe('Vercel MCP Server Production Integration', () => {
     }
   });
 
-  it('get_deployment_logs', async () => {
+  it('vercel_get_deployment_logs', async () => {
     const args = actualTestProjectId 
       ? { projectId: actualTestProjectId, limit: 1 }
       : { limit: 1 };
@@ -172,8 +175,8 @@ describe('Vercel MCP Server Production Integration', () => {
     }
   });
 
-  it('list_domains', async () => {
-    const result = await callTool(server, 'list_domains', { limit: 5 });
+  it('vercel_list_domains', async () => {
+    const result = await callTool(server, 'vercel_list_domains', { limit: 5 });
     if (result.error) {
       console.log('⚠️ list_domains: API Error -', result.error);
       expect(result.error).toBeDefined();
@@ -184,10 +187,10 @@ describe('Vercel MCP Server Production Integration', () => {
     console.log('✅ list_domains: PASSED');
   });
 
-  it('list_env_vars', async () => {
+  it('vercel_list_env_vars', async () => {
     if (!actualTestProjectId) {
       // Get any project ID for testing
-      const projectsResult = await callTool(server, 'list_projects', { limit: 1 });
+      const projectsResult = await callTool(server, 'vercel_list_projects', { limit: 1 });
       if (projectsResult.error) {
         console.log('⚠️ list_env_vars: SKIPPED - Cannot get projects:', projectsResult.error);
         return;
@@ -199,7 +202,7 @@ describe('Vercel MCP Server Production Integration', () => {
     }
     
     if (actualTestProjectId) {
-      const result = await callTool(server, 'list_env_vars', { projectId: actualTestProjectId });
+      const result = await callTool(server, 'vercel_list_env_vars', { projectId: actualTestProjectId });
       if (result.error) {
         console.log('⚠️ list_env_vars: API Error -', result.error);
         expect(result.error).toBeDefined();

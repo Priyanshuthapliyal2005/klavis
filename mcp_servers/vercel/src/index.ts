@@ -1359,14 +1359,13 @@ app.get('/', (req, res) => {
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-if (import.meta.url === process.argv[1] || import.meta.url === `file://${process.argv[1]}`) {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Vercel MCP Server running on port ${PORT}`);
-    console.log(`Available endpoints:`);
-    console.log(`  HTTP: http://0.0.0.0:${PORT}/mcp`);
-    console.log(`  SSE: http://0.0.0.0:${PORT}/sse`);
-    console.log(`  Health: http://0.0.0.0:${PORT}/health`);
-  });
-}
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Vercel MCP Server running on port ${PORT}`);
+  console.log(`Available endpoints:`);
+  console.log(`  HTTP: http://0.0.0.0:${PORT}/mcp`);
+  console.log(`  SSE: http://0.0.0.0:${PORT}/sse`);
+  console.log(`  Health: http://0.0.0.0:${PORT}/health`);
+});
 
 export { VercelMCPServer, asyncLocalStorage };
+
