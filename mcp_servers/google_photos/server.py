@@ -4,6 +4,7 @@ import logging
 import contextlib
 import uvicorn
 import click
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any, Dict, List, Optional
 from contextvars import ContextVar
@@ -23,12 +24,13 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from utils import (
-    get_photos_service, 
-    format_photo_metadata, 
+    get_photos_service,
+    get_picker_service,
+    format_photo_metadata,
     format_album_metadata,
+    format_picker_media_item,
     get_photo_url_with_size,
-    download_photo_as_base64,
-    build_search_filters
+    download_photo_as_base64
 )
 
 # Configure logging
@@ -38,19 +40,26 @@ load_dotenv()
 
 GOOGLE_PHOTOS_MCP_SERVER_PORT = int(os.getenv("GOOGLE_PHOTOS_MCP_SERVER_PORT", "5001"))
 
+# Load OAuth credentials from environment
+GOOGLE_TOKEN_URI = os.getenv("GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token")
+GOOGLE_REFRESH_TOKEN = os.getenv("GOOGLE_REFRESH_TOKEN")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+
 # Context variable to store the access token for each request
 auth_token_context: ContextVar[str] = ContextVar('auth_token')
 
 # Define enums
 class PhotoSize(Enum):
     SMALL = "s"
-    MEDIUM = "m"
+    MEDIUM = "m" 
     LARGE = "l"
     DOWNLOAD = "d"
 
-class MediaType(Enum):
-    PHOTO = "PHOTO"
-    VIDEO = "VIDEO"
+class SessionStatus(Enum):
+    PICKING = "PICKING"
+    READY = "READY"
+    CANCELLED = "CANCELLED"
 
 def get_auth_token() -> str:
     """Get the authentication token from context."""
@@ -59,128 +68,173 @@ def get_auth_token() -> str:
     except LookupError:
         raise RuntimeError("Authentication token not found in request context")
 
-def remove_none_values(params: dict) -> dict:
-    """Remove None values from parameters dictionary."""
-    return {k: v for k, v in params.items() if v is not None}
+def get_photos_service_with_full_credentials(access_token: str):
+    """Create Google Photos service with full OAuth credentials."""
+    if not all([GOOGLE_REFRESH_TOKEN, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET]):
+        missing = []
+        if not GOOGLE_REFRESH_TOKEN:
+            missing.append("GOOGLE_REFRESH_TOKEN")
+        if not GOOGLE_CLIENT_ID:
+            missing.append("GOOGLE_CLIENT_ID")
+        if not GOOGLE_CLIENT_SECRET:
+            missing.append("GOOGLE_CLIENT_SECRET")
+        raise RuntimeError(f"Missing required OAuth credentials: {', '.join(missing)}")
+    
+    return get_photos_service(
+        access_token=access_token,
+        refresh_token=GOOGLE_REFRESH_TOKEN,
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        token_uri=GOOGLE_TOKEN_URI
+    )
 
-async def search_photos(
-    query: str,
-    page_size: int = 25,
-    page_token: Optional[str] = None,
-    include_location: bool = True
-) -> Dict[str, Any]:
-    """Search for photos by text query."""
-    logger.info(f"Executing tool: search_photos with query: {query}")
+def get_picker_service_with_credentials(access_token: str):
+    """Create Google Photos Picker service with credentials."""
+    return get_picker_service(
+        access_token,
+        os.getenv("GOOGLE_REFRESH_TOKEN"),
+        os.getenv("GOOGLE_CLIENT_ID"),
+        os.getenv("GOOGLE_CLIENT_SECRET"),
+        os.getenv("GOOGLE_TOKEN_URI"),
+    )
+
+# PICKER API METHODS
+
+async def create_picker_session() -> Dict[str, Any]:
+    """Create a new picker session for user photo selection."""
+    logger.info("Executing tool: create_picker_session")
     try:
         access_token = get_auth_token()
-        service = get_photos_service(access_token)
+        service = get_picker_service_with_credentials(access_token)
         
-        # Build search request
-        request_body = {
-            "pageSize": min(page_size, 100),
-            "filters": build_search_filters()
-        }
-        
-        if page_token:
-            request_body["pageToken"] = page_token
-        
-        # Execute search
-        request = service.mediaItems().search(body=request_body)
+        # Create a new picker session
+        request = service.sessions().create()
         response = request.execute()
         
-        # Format photos
-        photos = []
-        for item in response.get('mediaItems', []):
-            formatted_photo = format_photo_metadata(item, include_location)
-            photos.append(formatted_photo)
-        
         return {
-            "photos": photos,
-            "nextPageToken": response.get('nextPageToken'),
-            "totalCount": len(photos)
+            "sessionId": response.get('id'),
+            "pickerUri": response.get('pickerUri'),
+            "status": response.get('status')
         }
-        
     except HttpError as e:
-        logger.error(f"Google Photos API error: {e}")
+        logger.error(f"Google Photos Picker API error: {e}")
         error_detail = json.loads(e.content.decode('utf-8'))
-        raise RuntimeError(f"Google Photos API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
+        raise RuntimeError(f"Google Photos Picker API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
     except Exception as e:
-        logger.exception(f"Error executing tool search_photos: {e}")
+        logger.exception(f"Error executing tool create_picker_session: {e}")
         raise e
 
-async def search_photos_by_location(
-    location_name: str,
-    page_size: int = 25,
-    page_token: Optional[str] = None
-) -> Dict[str, Any]:
-    """Search for photos by location name."""
-    logger.info(f"Executing tool: search_photos_by_location with location: {location_name}")
+async def get_picker_session(sessionId: str) -> Dict[str, Any]:
+    """Get the status of a picker session."""
+    logger.info(f"Executing tool: get_picker_session with session_id: {sessionId}")
     try:
         access_token = get_auth_token()
-        service = get_photos_service(access_token)
+        service = get_picker_service_with_credentials(access_token)
         
-        # Build search request with location filter
-        request_body = {
-            "pageSize": min(page_size, 100),
-            "filters": build_search_filters(location_name=location_name)
-        }
-        
-        if page_token:
-            request_body["pageToken"] = page_token
-        
-        # Execute search
-        request = service.mediaItems().search(body=request_body)
+        request = service.sessions().get(sessionId=sessionId)
         response = request.execute()
         
-        # Format photos
-        photos = []
+        return {
+            "sessionId": response.get('id'),
+            "status": response.get('status'),
+            "mediaItemsSet": response.get('mediaItemsSet', False)
+        }
+    except HttpError as e:
+        logger.error(f"Google Photos Picker API error: {e}")
+        error_detail = json.loads(e.content.decode('utf-8'))
+        raise RuntimeError(f"Google Photos Picker API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
+    except Exception as e:
+        logger.exception(f"Error executing tool get_picker_session: {e}")
+        raise e
+
+async def list_picked_media_items(
+    sessionId: str,
+    pageSize: int = 50,
+    pageToken: Optional[str] = None
+) -> Dict[str, Any]:
+    """List media items picked by the user in a session."""
+    logger.info(f"Executing tool: list_picked_media_items with session_id: {sessionId}")
+    try:
+        access_token = get_auth_token()
+        service = get_picker_service_with_credentials(access_token)
+        
+        params = {
+            "sessionId": sessionId,
+            "pageSize": min(pageSize, 100)
+        }
+        if pageToken:
+            params["pageToken"] = pageToken
+        
+        request = service.mediaItems().list(**params)
+        response = request.execute()
+        
+        # Format picked media items
+        media_items = []
         for item in response.get('mediaItems', []):
-            # Only include photos that have location data
-            if 'mediaMetadata' in item and 'location' in item['mediaMetadata']:
-                formatted_photo = format_photo_metadata(item, include_location=True)
-                photos.append(formatted_photo)
+            formatted_item = format_picker_media_item(item)
+            media_items.append(formatted_item)
         
         return {
-            "photos": photos,
+            "sessionId": sessionId,
+            "mediaItems": media_items,
             "nextPageToken": response.get('nextPageToken'),
-            "totalCount": len(photos)
+            "totalCount": len(media_items)
         }
-        
     except HttpError as e:
-        logger.error(f"Google Photos API error: {e}")
+        logger.error(f"Google Photos Picker API error: {e}")
         error_detail = json.loads(e.content.decode('utf-8'))
-        raise RuntimeError(f"Google Photos API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
+        raise RuntimeError(f"Google Photos Picker API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
     except Exception as e:
-        logger.exception(f"Error executing tool search_photos_by_location: {e}")
+        logger.exception(f"Error executing tool list_picked_media_items: {e}")
         raise e
+
+async def delete_picker_session(sessionId: str) -> Dict[str, Any]:
+    """Delete a picker session."""
+    logger.info(f"Executing tool: delete_picker_session with session_id: {sessionId}")
+    try:
+        access_token = get_auth_token()
+        service = get_picker_service_with_credentials(access_token)
+        
+        request = service.sessions().delete(sessionId=sessionId)
+        request.execute()
+        
+        return {"message": f"Session {sessionId} deleted successfully"}
+    except HttpError as e:
+        logger.error(f"Google Photos Picker API error: {e}")
+        error_detail = json.loads(e.content.decode('utf-8'))
+        raise RuntimeError(f"Google Photos Picker API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
+    except Exception as e:
+        logger.exception(f"Error executing tool delete_picker_session: {e}")
+        raise e
+
+# EXISTING LIBRARY API METHODS (App-created content only)
 
 async def get_photo(
-    photo_id: str,
-    include_base64: bool = False,
-    include_location: bool = True
+    photoId: str,
+    includeBase64: bool = False,
+    includeLocation: bool = True
 ) -> Dict[str, Any]:
-    """Get detailed information about a specific photo."""
-    logger.info(f"Executing tool: get_photo with photo_id: {photo_id}")
+    """Get detailed information about an app-created photo."""
+    logger.info(f"Executing tool: get_photo with photo_id: {photoId}")
+    access_token = get_auth_token()
+    service = get_photos_service_with_full_credentials(access_token)
+    
     try:
-        access_token = get_auth_token()
-        service = get_photos_service(access_token)
-        
-        # Get photo details
-        request = service.mediaItems().get(mediaItemId=photo_id)
+        request = service.mediaItems().get(mediaItemId=photoId)
         response = request.execute()
-        
-        # Format photo
-        photo = format_photo_metadata(response, include_location)
-        
-        # Add base64 data if requested
-        if include_base64:
+
+        photo = format_photo_metadata(response, includeLocation)
+
+        if includeBase64:
             photo_url = get_photo_url_with_size(response.get('baseUrl', ''), 'm')
             base64_data = await download_photo_as_base64(photo_url)
             photo['base64Data'] = base64_data
-        
+
         return photo
-        
+
     except HttpError as e:
+        if e.resp.status == 403:
+            raise RuntimeError(f"Access denied. Photo {photoId} was not created by this app.")
         logger.error(f"Google Photos API error: {e}")
         error_detail = json.loads(e.content.decode('utf-8'))
         raise RuntimeError(f"Google Photos API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
@@ -188,68 +242,34 @@ async def get_photo(
         logger.exception(f"Error executing tool get_photo: {e}")
         raise e
 
-async def get_photo_url(
-    photo_id: str,
-    size: str = "m"
-) -> Dict[str, Any]:
-    """Get photo URL with specified size."""
-    logger.info(f"Executing tool: get_photo_url with photo_id: {photo_id}, size: {size}")
-    try:
-        access_token = get_auth_token()
-        service = get_photos_service(access_token)
-        
-        # Get photo details
-        request = service.mediaItems().get(mediaItemId=photo_id)
-        response = request.execute()
-        
-        base_url = response.get('baseUrl', '')
-        photo_url = get_photo_url_with_size(base_url, size)
-        
-        return {
-            "photoUrl": photo_url,
-            "baseUrl": base_url,
-            "size": size
-        }
-        
-    except HttpError as e:
-        logger.error(f"Google Photos API error: {e}")
-        error_detail = json.loads(e.content.decode('utf-8'))
-        raise RuntimeError(f"Google Photos API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
-    except Exception as e:
-        logger.exception(f"Error executing tool get_photo_url: {e}")
-        raise e
-
 async def list_albums(
-    page_size: int = 20,
-    page_token: Optional[str] = None
+    pageSize: int = 20,
+    pageToken: Optional[str] = None
 ) -> Dict[str, Any]:
-    """List all albums in the user's Google Photos library."""
-    logger.info(f"Executing tool: list_albums")
+    """List albums created by this app."""
+    logger.info("Executing tool: list_albums")
     try:
         access_token = get_auth_token()
-        service = get_photos_service(access_token)
-        
-        # Build request parameters
-        params = {"pageSize": min(page_size, 50)}
-        if page_token:
-            params["pageToken"] = page_token
-        
-        # Execute request
+        service = get_photos_service_with_full_credentials(access_token)
+
+        params = {"pageSize": min(pageSize, 50)}
+        if pageToken:
+            params["pageToken"] = pageToken
+
         request = service.albums().list(**params)
         response = request.execute()
-        
-        # Format albums
+
         albums = []
         for album in response.get('albums', []):
             formatted_album = format_album_metadata(album)
             albums.append(formatted_album)
-        
+
         return {
             "albums": albums,
             "nextPageToken": response.get('nextPageToken'),
             "totalCount": len(albums)
         }
-        
+
     except HttpError as e:
         logger.error(f"Google Photos API error: {e}")
         error_detail = json.loads(e.content.decode('utf-8'))
@@ -258,74 +278,41 @@ async def list_albums(
         logger.exception(f"Error executing tool list_albums: {e}")
         raise e
 
-async def get_album(album_id: str) -> Dict[str, Any]:
-    """Get detailed information about a specific album."""
-    logger.info(f"Executing tool: get_album with album_id: {album_id}")
-    try:
-        access_token = get_auth_token()
-        service = get_photos_service(access_token)
-        
-        # Get album details
-        request = service.albums().get(albumId=album_id)
-        response = request.execute()
-        
-        # Format album
-        album = format_album_metadata(response)
-        
-        return album
-        
-    except HttpError as e:
-        logger.error(f"Google Photos API error: {e}")
-        error_detail = json.loads(e.content.decode('utf-8'))
-        raise RuntimeError(f"Google Photos API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
-    except Exception as e:
-        logger.exception(f"Error executing tool get_album: {e}")
-        raise e
-
-async def list_album_photos(
-    album_id: str,
-    page_size: int = 25,
-    page_token: Optional[str] = None,
-    include_location: bool = True
+async def list_app_created_photos(
+    pageSize: int = 25,
+    pageToken: Optional[str] = None,
+    includeLocation: bool = True
 ) -> Dict[str, Any]:
-    """List photos in a specific album."""
-    logger.info(f"Executing tool: list_album_photos with album_id: {album_id}")
+    """List photos created by this app."""
+    logger.info("Executing tool: list_app_created_photos")
     try:
         access_token = get_auth_token()
-        service = get_photos_service(access_token)
-        
-        # Build search request for album
-        request_body = {
-            "pageSize": min(page_size, 100),
-            "albumId": album_id
-        }
-        
-        if page_token:
-            request_body["pageToken"] = page_token
-        
-        # Execute search
-        request = service.mediaItems().search(body=request_body)
+        service = get_photos_service_with_full_credentials(access_token)
+
+        params = {"pageSize": min(pageSize, 100)}
+        if pageToken:
+            params["pageToken"] = pageToken
+
+        request = service.mediaItems().list(**params)
         response = request.execute()
-        
-        # Format photos
+
         photos = []
         for item in response.get('mediaItems', []):
-            formatted_photo = format_photo_metadata(item, include_location)
+            formatted_photo = format_photo_metadata(item, includeLocation)
             photos.append(formatted_photo)
-        
+
         return {
-            "albumId": album_id,
             "photos": photos,
             "nextPageToken": response.get('nextPageToken'),
             "totalCount": len(photos)
         }
-        
+
     except HttpError as e:
         logger.error(f"Google Photos API error: {e}")
         error_detail = json.loads(e.content.decode('utf-8'))
         raise RuntimeError(f"Google Photos API Error ({e.resp.status}): {error_detail.get('error', {}).get('message', 'Unknown error')}")
     except Exception as e:
-        logger.exception(f"Error executing tool list_album_photos: {e}")
+        logger.exception(f"Error executing tool list_app_created_photos: {e}")
         raise e
 
 @click.command()
@@ -352,76 +339,100 @@ def main(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
+    # Validate required OAuth credentials at startup
+    if not all([GOOGLE_REFRESH_TOKEN, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET]):
+        missing = []
+        if not GOOGLE_REFRESH_TOKEN:
+            missing.append("GOOGLE_REFRESH_TOKEN")
+        if not GOOGLE_CLIENT_ID:
+            missing.append("GOOGLE_CLIENT_ID")
+        if not GOOGLE_CLIENT_SECRET:
+            missing.append("GOOGLE_CLIENT_SECRET")
+        
+        logger.error(f"Missing required OAuth credentials: {', '.join(missing)}")
+        logger.error("Please set the following environment variables or add them to your .env file:")
+        for var in missing:
+            logger.error(f"  {var}")
+        return 1
+
     # Create the MCP server instance
     app = Server("google-photos-mcp-server")
 
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
         return [
+            # Picker API tools
             types.Tool(
-                name="search_photos",
-                description="Search for photos by text query in Google Photos",
+                name="create_picker_session",
+                description="Create a new picker session for user photo selection from Google Photos",
                 inputSchema={
                     "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Search query for photos"
-                        },
-                        "pageSize": {
-                            "type": "integer",
-                            "description": "Number of photos to return (max 100)",
-                            "minimum": 1,
-                            "maximum": 100,
-                            "default": 25
-                        },
-                        "pageToken": {
-                            "type": "string",
-                            "description": "Token for pagination"
-                        },
-                        "includeLocation": {
-                            "type": "boolean",
-                            "description": "Include location metadata in results",
-                            "default": True
-                        }
-                    },
-                    "required": ["query"]
+                    "properties": {}
                 }
             ),
             types.Tool(
-                name="search_photos_by_location",
-                description="Search for photos by location name in Google Photos",
+                name="get_picker_session",
+                description="Get the status of a picker session",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "locationName": {
+                        "sessionId": {
                             "type": "string",
-                            "description": "Location name to search for"
+                            "description": "ID of the picker session"
+                        }
+                    },
+                    "required": ["sessionId"]
+                }
+            ),
+            types.Tool(
+                name="list_picked_media_items",
+                description="List media items picked by the user in a session",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sessionId": {
+                            "type": "string",
+                            "description": "ID of the picker session"
                         },
                         "pageSize": {
                             "type": "integer",
-                            "description": "Number of photos to return (max 100)",
+                            "description": "Number of items to return (max 100)",
                             "minimum": 1,
                             "maximum": 100,
-                            "default": 25
+                            "default": 50
                         },
                         "pageToken": {
                             "type": "string",
                             "description": "Token for pagination"
                         }
                     },
-                    "required": ["locationName"]
+                    "required": ["sessionId"]
                 }
             ),
+            types.Tool(
+                name="delete_picker_session",
+                description="Delete a picker session",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sessionId": {
+                            "type": "string",
+                            "description": "ID of the picker session to delete"
+                        }
+                    },
+                    "required": ["sessionId"]
+                }
+            ),
+            # Library API tools (app-created content only)
             types.Tool(
                 name="get_photo",
-                description="Get detailed information about a specific photo",
+                description="Get detailed information about an app-created photo",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "photoId": {
                             "type": "string",
-                            "description": "ID of the photo to retrieve"
+                            "description": "ID of the app-created photo to retrieve"
                         },
                         "includeBase64": {
                             "type": "boolean",
@@ -438,28 +449,8 @@ def main(
                 }
             ),
             types.Tool(
-                name="get_photo_url",
-                description="Get photo URL with specified size",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "photoId": {
-                            "type": "string",
-                            "description": "ID of the photo"
-                        },
-                        "size": {
-                            "type": "string",
-                            "enum": ["s", "m", "l", "d"],
-                            "description": "Photo size: s=small(150px), m=medium(400px), l=large(1024px), d=download original",
-                            "default": "m"
-                        }
-                    },
-                    "required": ["photoId"]
-                }
-            ),
-            types.Tool(
                 name="list_albums",
-                description="List all albums in Google Photos",
+                description="List albums created by this app",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -478,29 +469,11 @@ def main(
                 }
             ),
             types.Tool(
-                name="get_album",
-                description="Get detailed information about a specific album",
+                name="list_app_created_photos",
+                description="List photos created by this app",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "albumId": {
-                            "type": "string",
-                            "description": "ID of the album to retrieve"
-                        }
-                    },
-                    "required": ["albumId"]
-                }
-            ),
-            types.Tool(
-                name="list_album_photos",
-                description="List photos in a specific album",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "albumId": {
-                            "type": "string",
-                            "description": "ID of the album"
-                        },
                         "pageSize": {
                             "type": "integer",
                             "description": "Number of photos to return (max 100)",
@@ -517,8 +490,7 @@ def main(
                             "description": "Include location metadata in results",
                             "default": True
                         }
-                    },
-                    "required": ["albumId"]
+                    }
                 }
             )
         ]
@@ -527,35 +499,35 @@ def main(
     async def call_tool(
         name: str, arguments: dict
     ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-        
-        if name == "search_photos":
-            result = await search_photos(**arguments)
+
+        if name == "create_picker_session":
+            result = await create_picker_session()
             return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
-        elif name == "search_photos_by_location":
-            result = await search_photos_by_location(**arguments)
+
+        elif name == "get_picker_session":
+            result = await get_picker_session(**arguments)
             return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
+
+        elif name == "list_picked_media_items":
+            result = await list_picked_media_items(**arguments)
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        elif name == "delete_picker_session":
+            result = await delete_picker_session(**arguments)
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
         elif name == "get_photo":
             result = await get_photo(**arguments)
             return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
-        elif name == "get_photo_url":
-            result = await get_photo_url(**arguments)
-            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
+
         elif name == "list_albums":
             result = await list_albums(**arguments)
             return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
-        elif name == "get_album":
-            result = await get_album(**arguments)
+
+        elif name == "list_app_created_photos":
+            result = await list_app_created_photos(**arguments)
             return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
-        elif name == "list_album_photos":
-            result = await list_album_photos(**arguments)
-            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
-        
+
         else:
             raise ValueError(f"Unknown tool: {name}")
 
@@ -564,24 +536,19 @@ def main(
 
     async def handle_sse(request):
         logger.info("Handling SSE connection")
-        
-        # Extract auth token from headers (allow None - will be handled at tool level)
+
         auth_token = request.headers.get('x-auth-token')
-        
-        # Set the auth token in context for this request (can be None)
         token = auth_token_context.set(auth_token or "")
         try:
             async for message in sse.handle_post_message(request):
                 yield message
         finally:
             auth_token_context.reset(token)
-        
-        # return Response()
 
     # Set up StreamableHTTP transport
     session_manager = StreamableHTTPSessionManager(
         app=app,
-        event_store=None,  # Stateless mode - can be changed to use an event store
+        event_store=None,
         json_response=json_response,
         stateless=True,
     )
@@ -590,14 +557,12 @@ def main(
         scope: Scope, receive: Receive, send: Send
     ) -> None:
         logger.info("Handling StreamableHTTP request")
-        
-        # Extract auth token from headers (allow None - will be handled at tool level)
+
         headers = dict(scope.get("headers", []))
         auth_token = headers.get(b'x-auth-token')
         if auth_token:
             auth_token = auth_token.decode('utf-8')
-        
-        # Set the auth token in context for this request (can be None/empty)
+
         token = auth_token_context.set(auth_token or "")
         try:
             await session_manager.handle_request(scope, receive, send)
@@ -613,19 +578,18 @@ def main(
     starlette_app = Starlette(
         debug=True,
         routes=[
-            # SSE routes
             Route("/sse", endpoint=handle_sse, methods=["GET"]),
             Mount("/messages/", app=sse.handle_post_message),
-            
-            # StreamableHTTP route
             Mount("/mcp", app=handle_streamable_http),
         ],
         lifespan=lifespan,
     )
 
-    logger.info(f"Google Photos MCP Server starting on port {port} with dual transports:")
+    logger.info(f"Google Photos MCP Server starting on port {port}")
     logger.info(f"  - SSE endpoint: http://localhost:{port}/sse")
     logger.info(f"  - StreamableHTTP endpoint: http://localhost:{port}/mcp")
+    logger.info("  - Uses Picker API for user photo selection")
+    logger.info("  - Library API limited to app-created content")
 
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 

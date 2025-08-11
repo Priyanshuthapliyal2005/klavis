@@ -1,4 +1,10 @@
+# NOTE: As of April 2025, this integration uses the Picker API for user photo selection
+# and Library API only for app-created content.
+# See: https://developers.google.com/photos/library/guides/api-changes
+
+import os
 import base64
+import aiohttp
 import logging
 from typing import Dict, Any, List, Optional
 from googleapiclient.discovery import build
@@ -10,24 +16,89 @@ logger = logging.getLogger(__name__)
 
 def get_photos_service(
     access_token: str,
-    refresh_token: str = None,
-    client_id: str = None,
-    client_secret: str = None,
-    token_uri: str = None
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+    token_uri: str
 ):
-    """Create Google Photos service with full OAuth credentials."""
+    """
+    Returns a Google Photos Library API service client.
+    Only app-created content is accessible due to Google Photos API changes (March 2025).
+    """
     credentials = Credentials(
         token=access_token,
         refresh_token=refresh_token,
-        token_uri=token_uri,
         client_id=client_id,
-        client_secret=client_secret
+        client_secret=client_secret,
+        token_uri=token_uri,
+        scopes=[
+            "https://www.googleapis.com/auth/photoslibrary.appendonly",
+            "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata"
+        ]
+    )
+    return build("photoslibrary", "v1", credentials=credentials)
+
+def get_picker_service(
+    access_token: str,
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+    token_uri: str
+) -> Any:
+    """
+    Returns a Google Photos Picker API service client with full OAuth credentials
+    (so we can refresh the token when it expires).
+    """
+    credentials = Credentials(
+        token=access_token,
+        refresh_token=refresh_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        token_uri=token_uri,
+        scopes=["https://www.googleapis.com/auth/photospicker.mediaitems.readonly"],
     )
     return build(
-        'photoslibrary', 'v1',
+        "photospicker",
+        "v1",
         credentials=credentials,
-        discoveryServiceUrl='https://photoslibrary.googleapis.com/$discovery/rest?version=v1'
+        discoveryServiceUrl="https://photospicker.googleapis.com/$discovery/rest?version=v1",
     )
+
+def format_picker_media_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Format a picked media item from the Picker API."""
+    media_file = item.get('mediaFile', {})
+    metadata = media_file.get('mediaFileMetadata', {})
+    
+    formatted_item = {
+        'id': item.get('id'),
+        'createTime': item.get('createTime'),
+        'type': item.get('type'),
+        'filename': media_file.get('filename'),
+        'mimeType': media_file.get('mimeType'),
+        'baseUrl': media_file.get('baseUrl'),
+        'width': metadata.get('width'),
+        'height': metadata.get('height'),
+        'cameraMake': metadata.get('cameraMake'),
+        'cameraModel': metadata.get('cameraModel')
+    }
+    
+    # Add type-specific metadata
+    if 'photoMetadata' in metadata:
+        photo_meta = metadata['photoMetadata']
+        formatted_item['photoMetadata'] = {
+            'focalLength': photo_meta.get('focalLength'),
+            'apertureFNumber': photo_meta.get('apertureFNumber'),
+            'isoEquivalent': photo_meta.get('isoEquivalent'),
+            'exposureTime': photo_meta.get('exposureTime')
+        }
+    elif 'videoMetadata' in metadata:
+        video_meta = metadata['videoMetadata']
+        formatted_item['videoMetadata'] = {
+            'fps': video_meta.get('fps'),
+            'processingStatus': video_meta.get('processingStatus')
+        }
+    
+    return formatted_item
 
 def format_photo_metadata(photo: Dict[str, Any], include_location: bool = True) -> Dict[str, Any]:
     """Format photo metadata for response."""
