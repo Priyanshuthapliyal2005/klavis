@@ -7,117 +7,18 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 // @ts-ignore
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 // @ts-ignore
-// @ts-ignore
-import { Tool, ListToolsRequestSchema, CallToolRequestSchema, CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
-import { AsyncLocalStorage } from "async_hooks";
+import { ListToolsRequestSchema, CallToolRequestSchema, CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 
-const PERPLEXITY_ASK_TOOL: Tool = {
-  name: "perplexity_ask",
-  description:
-    "Engages in a conversation using the Sonar API. Accepts an array of messages (each with a role and content) and returns a ask completion response from the Perplexity model.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      messages: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            role: { type: "string", description: "Role of the message (e.g., system, user, assistant)" },
-            content: { type: "string", description: "The content of the message" },
-          },
-          required: ["role", "content"],
-        },
-        description: "Array of conversation messages",
-      },
-    },
-    required: ["messages"],
-  },
-};
-
-const PERPLEXITY_RESEARCH_TOOL: Tool = {
-  name: "perplexity_research",
-  description:
-    "Performs deep research using the Perplexity API. Accepts an array of messages (each with a role and content) and returns a comprehensive research response with citations.",
-  inputSchema: PERPLEXITY_ASK_TOOL.inputSchema,
-};
-
-const PERPLEXITY_REASON_TOOL: Tool = {
-  name: "perplexity_reason",
-  description:
-    "Performs reasoning tasks using the Perplexity API. Accepts an array of messages (each with a role and content) and returns a well-reasoned response using the sonar-reasoning-pro model.",
-  inputSchema: PERPLEXITY_ASK_TOOL.inputSchema,
-};
-
-const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
-
-class PerplexityClient {
-  private apiKey: string;
-
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
-  }
-
-  // Update token if needed
-  refreshToken() {
-    const token = getPerplexityToken();
-    if (token) {
-      this.apiKey = token;
-      return true;
-    }
-    return false;
-  }
-
-  async performChatCompletion(
-    messages: Array<{ role: string; content: string }>,
-    model: string = "sonar-pro"
-  ): Promise<string> {
-    this.refreshToken();
-    const url = new URL("https://api.perplexity.ai/chat/completions");
-    const body = {
-      model,
-      messages,
-    };
-    let response;
-    try {
-      response = await fetch(url.toString(), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify(body),
-      });
-    } catch (error) {
-      throw new Error(`Network error while calling Perplexity API: ${error}`);
-    }
-    if (!response.ok) {
-      let errorText;
-      try {
-        errorText = await response.text();
-      } catch {
-        errorText = "Unable to parse error response";
-      }
-      throw new Error(
-        `Perplexity API error: ${response.status} ${response.statusText}\n${errorText}`
-      );
-    }
-    let data;
-    try {
-      data = await response.json();
-    } catch (jsonError) {
-      throw new Error(`Failed to parse JSON response from Perplexity API: ${jsonError}`);
-    }
-    let messageContent = data.choices[0].message.content;
-    if (data.citations && Array.isArray(data.citations) && data.citations.length > 0) {
-      messageContent += "\n\nCitations:\n";
-      data.citations.forEach((citation: string, index: number) => {
-        messageContent += `[${index + 1}] ${citation}\n`;
-      });
-    }
-    return messageContent;
-  }
-}
+import { ALL_TOOLS } from './schemas.js';
+import { PerplexityClient, getPerplexityToken, asyncLocalStorage } from './client.js';
+import { 
+  AskTool, 
+  SearchTool, 
+  ResearchTool, 
+  ReasonTool, 
+  SummaryTool, 
+  CodeAssistantTool 
+} from './tools/index.js';
 
 const getPerplexityMcpServer = () => {
   const server = new Server(
@@ -132,69 +33,52 @@ const getPerplexityMcpServer = () => {
     }
   );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [PERPLEXITY_ASK_TOOL, PERPLEXITY_RESEARCH_TOOL, PERPLEXITY_REASON_TOOL],
-}));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: ALL_TOOLS,
+  }));
 
-server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
-  try {
-    const { name, arguments: args } = request.params;
-    if (!args) throw new Error("No arguments provided");
-    
-    const perplexityToken = getPerplexityToken();
-    if (!perplexityToken) {
-      throw new Error("No valid Perplexity token found for this instance");
-    }
+  server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
+    try {
+      const { name, arguments: args } = request.params;
+      if (!args) throw new Error("No arguments provided");
+      
+      const perplexityToken = getPerplexityToken();
+      if (!perplexityToken) {
+        throw new Error("No valid Perplexity token found for this instance");
+      }
 
-    const perplexityClient = new PerplexityClient(perplexityToken);
-    
-    switch (name) {
-      case "perplexity_ask": {
-        if (!Array.isArray(args.messages)) throw new Error("Invalid arguments for perplexity_ask: 'messages' must be an array");
-        const result = await perplexityClient.performChatCompletion(args.messages, "sonar-pro");
-        return { content: [{ type: "text", text: result }], isError: false };
-      }
-      case "perplexity_research": {
-        if (!Array.isArray(args.messages)) throw new Error("Invalid arguments for perplexity_research: 'messages' must be an array");
-        const result = await perplexityClient.performChatCompletion(args.messages, "sonar-deep-research");
-        return { content: [{ type: "text", text: result }], isError: false };
-      }
-      case "perplexity_reason": {
-        if (!Array.isArray(args.messages)) throw new Error("Invalid arguments for perplexity_reason: 'messages' must be an array");
-        const result = await perplexityClient.performChatCompletion(args.messages, "sonar-reasoning-pro");
-        return { content: [{ type: "text", text: result }], isError: false };
-      }
-      default:
+      const perplexityClient = new PerplexityClient(perplexityToken);
+      
+      // Create tool instances
+      const tools = {
+        perplexity_ask: new AskTool(perplexityClient),
+        perplexity_search: new SearchTool(perplexityClient),
+        perplexity_research: new ResearchTool(perplexityClient),
+        perplexity_reason: new ReasonTool(perplexityClient),
+        perplexity_summary: new SummaryTool(perplexityClient),
+        perplexity_code_assistant: new CodeAssistantTool(perplexityClient),
+      };
+
+      const tool = tools[name as keyof typeof tools];
+      if (!tool) {
         return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
+      }
+
+      return await tool.execute(args);
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
     }
-  } catch (error) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      ],
-      isError: true,
-    };
-  }
-});
+  });
 
-return server;
-}
-
-// Create AsyncLocalStorage for request context
-const asyncLocalStorage = new AsyncLocalStorage<{
-  perplexity_token: string;
-}>();
-
-function getPerplexityToken() {
-  // First check if env var exists
-  if (process.env.PERPLEXITY_API_KEY) {
-    return process.env.PERPLEXITY_API_KEY;
-  }
-  // Fall back to token from request context
-  return asyncLocalStorage.getStore()!.perplexity_token;
+  return server;
 }
 
 const app = express();

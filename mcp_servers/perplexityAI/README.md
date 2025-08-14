@@ -1,89 +1,101 @@
 # Perplexity MCP Server
 
-A Model Context Protocol (MCP) server for Perplexity AI, implemented in TypeScript.
+A Model Context Protocol (MCP) server that proxies requests to the Perplexity AI chat API. Implemented in TypeScript and packaged for local (npm) and containerized (Docker) usage.
 
 ## Features
 
-- Exposes Perplexity tools via MCP: Ask, Research, Reason
-- Endpoints:
-  - `/sse` - Server-Sent Events endpoint for real-time communication
-  - `/messages/` - SSE message handling endpoint
-  - `/mcp` - StreamableHTTP endpoint for direct API calls
+- Exposes Perplexity tools via MCP: ask, research, reason, code_assistant, summary
+- Supports Streamable HTTP (`/mcp`) and SSE (`/sse`, `/messages`) transports
 
-## Setup
+## Prerequisites
 
-### Prerequisites
-- Node.js 18+ and npm
-- Perplexity API key
+- Node.js 18+ and npm (for local install)
+- Docker (optional, for containerized runs)
+- A Perplexity API key (set as `PERPLEXITY_API_KEY`)
 
-### Installation
+There is a `.env.example` in this folder you can copy to `.env` and edit.
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Copy `.env.example` to `.env` and set your `PERPLEXITY_API_KEY`.
-3. Build and run:
-   ```bash
-   npm run build
-   npm start
-   ```
+## Environment variables
 
-### Docker
+- PERPLEXITY_API_KEY - required. The Perplexity API token used for requests.
+- PORT - optional. Defaults to `5000`.
 
-1. Build the Docker image:
-   ```bash
-   docker build -t perplexity-mcp-server .
-   ```
-2. Run the container:
-   ```bash
-   docker run -e PERPLEXITY_API_KEY=your_key -p 5000:5000 perplexity-mcp-server
-   ```
+Example `.env` (copy from `.env.example`):
 
-## API Endpoints
+```
+PERPLEXITY_API_KEY=your-perplexity-key-here
+PORT=5000
+```
 
-- `/sse` - Server-Sent Events endpoint for real-time communication
-- `/messages/` - SSE message handling endpoint
-- `/mcp` - StreamableHTTP endpoint for direct API calls
+## Configure `mcp.json` to point to this server
 
-## Tool Usage Examples
+If you use the workspace `mcp.json` (example location: `.vscode/mcp.json`), add or update the `perplexity` entry to point to the running server and include the `x-auth-token` header with your key. For example:
 
-### Ask
-```json
+```jsonc
 {
-  "name": "perplexity_ask",
-  "arguments": {
-    "messages": [
-      { "role": "user", "content": "What is the capital of France?" }
-    ]
+  "servers": {
+    "perplexity": {
+      "type": "http",
+      "url": "http://localhost:5000/mcp",
+      "headers": {
+        "x-auth-token": "your-perplexity-key-here"
+      }
+    }
   }
 }
 ```
 
-### Research
-```json
-{
-  "name": "perplexity_research",
-  "arguments": {
-    "messages": [
-      { "role": "user", "content": "Explain quantum computing." }
-    ]
-  }
-}
+Replace the token above with your `PERPLEXITY_API_KEY` or an environment-secure secret.
+
+## Run locally (traditional - npm)
+
+1. Change to the server directory and install dependencies:
+
+```bash
+cd mcp_servers/perplexityAI
+npm ci
 ```
 
-### Reason
-```json
-{
-  "name": "perplexity_reason",
-  "arguments": {
-    "messages": [
-      { "role": "user", "content": "Why is the sky blue?" }
-    ]
-  }
-}
+2. Create `.env` from the example and set your key:
+
+```bash
+cp .env.example .env
+# edit .env and set PERPLEXITY_API_KEY
 ```
 
-## License
+3. Build and start:
 
-This project follows the same license as the parent Klavis project.
+```bash
+npm run build
+npm start
+```
+
+Server will listen on `http://localhost:5000` by default.
+
+## Run with Docker (from repository root)
+
+1. Build the image (run from repo root):
+
+```bash
+docker build -t perplexity-mcp-server:latest mcp_servers/perplexityAI
+```
+
+2. Run the container (use the `.env` file in the folder to pass the API key):
+
+```bash
+docker run --env-file mcp_servers/perplexityAI/.env -p 5000:5000 perplexity-mcp-server:latest
+```
+
+The container exposes port `5000` which maps to the MCP `url` shown in the `mcp.json` example above.
+
+## Notes and troubleshooting
+
+- If you see authentication errors, verify the `PERPLEXITY_API_KEY` value and that you send it in the `x-auth-token` header.
+- Use `PORT` environment variable to change the listening port; update `mcp.json` accordingly.
+- For local development, `stdio` transport may be used by some hosts; this server supports HTTP+SSE/Streamable HTTP.
+
+## Enjoy
+
+Start the server using your preferred method (npm or Docker), update your `mcp.json` `perplexity` section to point to the running server, and enjoy integrating Perplexity tools via MCP.
+
+@Priyanshuthapliyal2005
