@@ -14,8 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY mcp_servers/google_photos/server.py .
 COPY mcp_servers/google_photos/utils.py .
 
-COPY mcp_servers/google_photos/.env.example .env
-
 # Expose the port the server runs on
 EXPOSE 5000
 

@@ -15,9 +15,10 @@
 - Use the provided `get_photos_token.py` script or your own method to generate an access token and refresh token.
 - Save the access token and refresh token in your `.env` file or directly in your `mcp.json` (see below).
 
+
 ## 3. Set Up Your `.env` File
 
-Example `.env`:
+Create a `.env` file in `mcp_servers/google_photos/` with:
 ```
 GOOGLE_CLIENT_ID=your-client-id
 GOOGLE_CLIENT_SECRET=your-client-secret
@@ -26,9 +27,9 @@ GOOGLE_TOKEN_URI=https://oauth2.googleapis.com/token
 GOOGLE_PHOTOS_MCP_SERVER_PORT=5000
 ```
 
-## 4. Configure `mcp.json`
+## 4. Configure `mcp.json` for Natural Language Agents
 
-Example:
+To interact with your MCP server using agents like Copilot, Cursor, etc., set up `.vscode/mcp.json` in your repo root:
 ```jsonc
 {
     "servers": {
@@ -45,20 +46,27 @@ Example:
 }
 ```
 
-## 5. Install Requirements
 
-From the google_photos directory, run:
+## 5. Run the Server (Docker or Bare Metal)
+
+You can run the Google Photos MCP server either with Docker or directly (bare metal):
+
+### Option 1: Docker (Recommended)
+From the root of your repo (`/workspaces/klavis`), build and run the server:
+
+```bash
+docker build -f mcp_servers/google_photos/Dockerfile -t my-google-photos-server .
+docker run --env-file mcp_servers/google_photos/.env -p 5000:5000 my-google-photos-server
 ```
+
+### Option 2: Bare Metal (Directly on Host)
+From the `mcp_servers/google_photos` directory, install requirements and run:
+
+```bash
 pip install -r requirements.txt
-```
-
-## 6. Start the Server
-
-From the same directory, run:
-```
 python server.py
 ```
 
-Your Google Photos MCP server should now be running and ready to use!
+Your Google Photos MCP server will be running and accessible at http://localhost:5000. You can now interact with it using natural language agents!
 
 @Priyanshuthapliyal2005
