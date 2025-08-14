@@ -1,101 +1,132 @@
 # Perplexity MCP Server
 
-A Model Context Protocol (MCP) server that proxies requests to the Perplexity AI chat API. Implemented in TypeScript and packaged for local (npm) and containerized (Docker) usage.
+A Model Context Protocol (MCP) server for Perplexity AI, implemented in TypeScript.
 
 ## Features
 
-- Exposes Perplexity tools via MCP: ask, research, reason, code_assistant, summary
-- Supports Streamable HTTP (`/mcp`) and SSE (`/sse`, `/messages`) transports
+- Exposes Perplexity tools via MCP: Ask, Research, Reason
+- Endpoints:
+  - `/sse` - Server-Sent Events endpoint for real-time communication
+  - `/messages/` - SSE message handling endpoint
+  - `/mcp` - StreamableHTTP endpoint for direct API calls
 
-## Prerequisites
+## Setup
 
-- Node.js 18+ and npm (for local install)
-- Docker (optional, for containerized runs)
-- A Perplexity API key (set as `PERPLEXITY_API_KEY`)
+### Prerequisites
+- Node.js 18+ and npm
+- Perplexity API key
 
-There is a `.env.example` in this folder you can copy to `.env` and edit.
+### Installation
 
-## Environment variables
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Copy `.env.example` to `.env` and set your `PERPLEXITY_API_KEY`.
+3. Build and run:
+   ```bash
+   npm run build
+   npm start
+   ```
 
-- PERPLEXITY_API_KEY - required. The Perplexity API token used for requests.
-- PORT - optional. Defaults to `5000`.
+### Docker
 
-Example `.env` (copy from `.env.example`):
+1. Build the Docker image:
+   ```bash
+   docker build -t perplexity-mcp-server .
+   ```
+2. Run the container:
+   ```bash
+   docker run -e PERPLEXITY_API_KEY=your_key -p 5000:5000 perplexity-mcp-server
+   ```
 
-```
-PERPLEXITY_API_KEY=your-perplexity-key-here
-PORT=5000
-```
+## API Endpoints
 
-## Configure `mcp.json` to point to this server
+- `/sse` - Server-Sent Events endpoint for real-time communication
+- `/messages/` - SSE message handling endpoint
+- `/mcp` - StreamableHTTP endpoint for direct API calls
 
-If you use the workspace `mcp.json` (example location: `.vscode/mcp.json`), add or update the `perplexity` entry to point to the running server and include the `x-auth-token` header with your key. For example:
+## Tool Usage Examples
 
-```jsonc
+### Ask
+```json
 {
-  "servers": {
-    "perplexity": {
-      "type": "http",
-      "url": "http://localhost:5000/mcp",
-      "headers": {
-        "x-auth-token": "your-perplexity-key-here"
-      }
-    }
+  "name": "perplexity_ask",
+  "arguments": {
+    "messages": [
+      { "role": "user", "content": "What is the capital of France?" }
+    ]
   }
 }
 ```
 
-Replace the token above with your `PERPLEXITY_API_KEY` or an environment-secure secret.
-
-## Run locally (traditional - npm)
-
-1. Change to the server directory and install dependencies:
-
-```bash
-cd mcp_servers/perplexityAI
-npm ci
+### Research
+```json
+{
+  "name": "perplexity_research",
+  "arguments": {
+    "messages": [
+      { "role": "user", "content": "Explain quantum computing." }
+    ]
+  }
+}
 ```
 
-2. Create `.env` from the example and set your key:
-
-```bash
-cp .env.example .env
-# edit .env and set PERPLEXITY_API_KEY
+### Reason
+```json
+{
+  "name": "perplexity_reason",
+  "arguments": {
+    "messages": [
+      { "role": "user", "content": "Why is the sky blue?" }
+    ]
+  }
+}
 ```
 
-3. Build and start:
+## Perplexity tools (overview)
 
-```bash
-npm run build
-npm start
-```
+This MCP server exposes six Perplexity tools. Below are short descriptions, typical inputs, primary uses, and how they differ from each other.
 
-Server will listen on `http://localhost:5000` by default.
+- perplexity_ask
+  - Description: General-purpose conversational Q&A. Produces concise, direct answers to single-turn or multi-turn user questions.
+  - Inputs: `messages` array (chat-style user/system messages).
+  - Best for: Straightforward factual questions, follow-ups, and conversational interactions where a short answer is desired.
 
-## Run with Docker (from repository root)
+- perplexity_search
+  - Description: Query-focused web/search tool that prioritizes retrieving factual information and citations from web sources.
+  - Inputs: `messages` array; typically a search-style prompt.
+  - Best for: Looking up facts, news, or references; when source citations and retrieval fidelity matter.
 
-1. Build the image (run from repo root):
+- perplexity_research
+  - Description: Deeper investigative mode that gathers supporting evidence, multiple sources, and structured context for complex topics.
+  - Inputs: `messages` array; can be multi-part research prompts.
+  - Best for: Long-form explanations, literature reviews, comparative analysis, and situations that need multiple corroborating sources.
 
-```bash
-docker build -t perplexity-mcp-server:latest mcp_servers/perplexityAI
-```
+- perplexity_reason
+  - Description: Reasoning-focused tool that emphasizes chain-of-thought and causal explanations rather than surface-level answers.
+  - Inputs: `messages` array where prompts request explanations or stepwise reasoning.
+  - Best for: Causal questions, problem solving, explanations that benefit from stepwise logic.
 
-2. Run the container (use the `.env` file in the folder to pass the API key):
+- perplexity_summary
+  - Description: Condenses long text or aggregated results into concise summaries with optional citation handling.
+  - Inputs: Text or `messages` containing content to summarize; options may control citation limits.
+  - Best for: Summarizing articles, long threads, or research findings into digestible bullets or short paragraphs.
 
-```bash
-docker run --env-file mcp_servers/perplexityAI/.env -p 5000:5000 perplexity-mcp-server:latest
-```
+- perplexity_code_assistant
+  - Description: Developer-oriented tool tuned for coding tasks: generating, explaining, or fixing code with contextual awareness.
+  - Inputs: `messages` array including code snippets or coding instructions; can run with `verbose` option for more detail.
+  - Best for: Code generation, refactors, debugging help, and code explanations.
 
-The container exposes port `5000` which maps to the MCP `url` shown in the `mcp.json` example above.
+### How they differ (quick comparison)
 
-## Notes and troubleshooting
+- Focus: `ask` = general answers, `search` = retrieval/citations, `research` = multi-source investigation, `reason` = logical explanations, `summary` = condensation, `code_assistant` = code-centric.
+- Response style: `ask` and `summary` favor concise outputs; `research` and `reason` favor detailed, structured outputs; `search` includes source citations; `code_assistant` returns code + explanations.
+- Latency & cost: `research` and `search` often incur higher latency (external retrieval) and may request more tokens/calls; `ask`, `summary`, and `reason` are typically faster for short prompts. `code_assistant` may be verbose depending on the task.
+- Best input shape: All tools accept the MCP `messages` array; prefer search/research prompts to be phrased as queries, and code_assistant prompts to include language/context and sample code where relevant.
+- Citations & evidence: `search` and `research` prioritize citing sources; `summary` can include citations if supplied; `ask`, `reason`, and `code_assistant` may provide fewer explicit citations unless asked.
 
-- If you see authentication errors, verify the `PERPLEXITY_API_KEY` value and that you send it in the `x-auth-token` header.
-- Use `PORT` environment variable to change the listening port; update `mcp.json` accordingly.
-- For local development, `stdio` transport may be used by some hosts; this server supports HTTP+SSE/Streamable HTTP.
+Use the tool whose intent matches your goal: retrieval+citation -> `perplexity_search`/`perplexity_research`; explanation/logic -> `perplexity_reason`; concise Q&A -> `perplexity_ask`; summarization -> `perplexity_summary`; coding -> `perplexity_code_assistant`.
 
-## Enjoy
-
-Start the server using your preferred method (npm or Docker), update your `mcp.json` `perplexity` section to point to the running server, and enjoy integrating Perplexity tools via MCP.
 
 @Priyanshuthapliyal2005
