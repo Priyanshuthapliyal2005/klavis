@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY mcp_servers/google_photos/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY mcp_servers/google_photos/server.py .
-COPY mcp_servers/google_photos/utils.py .
+# Copy the entire google_photos directory (including tools)
+COPY mcp_servers/google_photos .
 
 # Expose the port the server runs on
 EXPOSE 5000
