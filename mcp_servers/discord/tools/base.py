@@ -80,10 +80,15 @@ class DiscordToolRegistry:
     
     async def handle_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """Handle tool call by routing to appropriate tool."""
+        # Build a mapping of tool names to tools based on their definitions
+        tool_name_to_tool = {}
         for tool in self.tools.values():
-            try:
-                return await tool.handle_tool_call(tool_name, arguments)
-            except NotImplementedError:
-                continue
+            for tool_def in tool.get_tool_definitions():
+                tool_name_to_tool[tool_def["name"]] = tool
         
-        raise ValueError(f"Unknown tool: {tool_name}")
+        # Find the appropriate tool for this tool name
+        if tool_name not in tool_name_to_tool:
+            raise ValueError(f"Unknown tool: {tool_name}")
+        
+        tool = tool_name_to_tool[tool_name]
+        return await tool.handle_tool_call(tool_name, arguments)

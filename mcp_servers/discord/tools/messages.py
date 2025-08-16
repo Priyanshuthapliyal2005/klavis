@@ -4,9 +4,33 @@ Discord Message Management Tools
 Handles Discord message operations including sending, reading, and reactions.
 """
 
+import re
+import urllib.parse
 from typing import Any, Dict, List, Union
 
 from .base import DiscordBaseTool
+
+
+def normalize_emoji(emoji: str) -> str:
+    """
+    Normalize emoji for Discord API usage.
+    
+    Args:
+        emoji: Unicode emoji or custom emoji in various formats
+        
+    Returns:
+        Properly formatted emoji string for API calls
+    """
+    # If it's a custom emoji with angle brackets, remove them
+    if emoji.startswith('<') and emoji.endswith('>'):
+        # Extract the name:id part from <:name:id> or <a:name:id>
+        match = re.match(r'<a?:([^:]+):(\d+)>', emoji)
+        if match:
+            name, emoji_id = match.groups()
+            return f"{name}:{emoji_id}"
+    
+    # Return as-is for Unicode emoji or already normalized custom emoji
+    return emoji
 
 
 class MessageTool(DiscordBaseTool):
@@ -158,7 +182,8 @@ class MessageTool(DiscordBaseTool):
     
     async def send_message(self, channel_id: str, content: str) -> Dict[str, Any]:
         """Send a message to a Discord channel."""
-        self.log_tool_execution("send_message", channel_id=channel_id, content=content[:50] + "...")
+        content_preview = content[:50] + ("..." if len(content) > 50 else "")
+        self.log_tool_execution("send_message", channel_id=channel_id, content=content_preview)
         
         try:
             endpoint = f"/channels/{channel_id}/messages"
@@ -169,7 +194,7 @@ class MessageTool(DiscordBaseTool):
             return {
                 "message_id": response.get("id"),
                 "channel_id": channel_id,
-                "content_preview": content[:50] + ("..." if len(content) > 50 else "")
+                "content_preview": content_preview
             }
         except Exception as e:
             self.log_tool_error("send_message", e)
@@ -208,56 +233,118 @@ class MessageTool(DiscordBaseTool):
             self.log_tool_error("read_messages", e)
             raise
     
-    async def add_reaction(self, channel_id: str, message_id: str, emoji: str) -> str:
+    async def add_reaction(self, channel_id: str, message_id: str, emoji: str) -> Dict[str, Any]:
         """Add a reaction to a message."""
         self.log_tool_execution("add_reaction", channel_id=channel_id, message_id=message_id, emoji=emoji)
         
         try:
-            # URL encode the emoji
-            import urllib.parse
-            encoded_emoji = urllib.parse.quote(emoji, safe='')
+            # Normalize and URL encode the emoji
+            normalized_emoji = normalize_emoji(emoji)
+            # If this looks like a custom emoji (name:id), validate it exists in the guild
+            is_custom = False
+            custom_id = None
+            if ":" in normalized_emoji:
+                parts = normalized_emoji.rsplit(":", 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    is_custom = True
+                    custom_id = parts[1]
+
+            if is_custom:
+                try:
+                    # Get channel info to determine guild id
+                    channel_info = await self.auth.make_request("GET", f"/channels/{channel_id}")
+                    guild_id = channel_info.get("guild_id")
+                    if not guild_id:
+                        raise RuntimeError("Custom emoji requires a guild channel (no guild_id found for channel)")
+
+                    # Fetch guild emojis and ensure the custom emoji belongs to the guild
+                    guild_emojis = await self.auth.make_request("GET", f"/guilds/{guild_id}/emojis")
+                    emoji_ids = {e.get("id") for e in guild_emojis}
+                    if custom_id not in emoji_ids:
+                        raise RuntimeError(f"Custom emoji id {custom_id} not found in guild {guild_id} or bot lacks access to it")
+                except Exception as e:
+                    # Bubble up a clear error about custom emoji availability
+                    self.log_tool_error("add_reaction", e)
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "emoji": emoji,
+                        "message_id": message_id,
+                        "channel_id": channel_id
+                    }
+            encoded_emoji = urllib.parse.quote(normalized_emoji, safe='')
             endpoint = f"/channels/{channel_id}/messages/{message_id}/reactions/{encoded_emoji}/@me"
             
             await self.auth.make_request("PUT", endpoint, expect_empty_response=True)
-            return f"Successfully added reaction {emoji} to message {message_id}"
+            return {
+                "success": True,
+                "message": f"Successfully added reaction {emoji} to message {message_id}",
+                "emoji": emoji,
+                "message_id": message_id,
+                "channel_id": channel_id
+            }
         except Exception as e:
             self.log_tool_error("add_reaction", e)
-            return f"Error adding reaction {emoji} to message {message_id}: {str(e)}"
+            return {
+                "success": False,
+                "error": str(e),
+                "emoji": emoji,
+                "message_id": message_id,
+                "channel_id": channel_id
+            }
     
-    async def add_multiple_reactions(self, channel_id: str, message_id: str, emojis: List[str]) -> str:
+    async def add_multiple_reactions(self, channel_id: str, message_id: str, emojis: List[str]) -> Dict[str, Any]:
         """Add multiple reactions to a message."""
         self.log_tool_execution("add_multiple_reactions", channel_id=channel_id, message_id=message_id, emojis=emojis)
         
         results = []
         errors = []
-        
+        # Attempt each emoji sequentially and record successes/failures with clear messages
         for emoji in emojis:
             try:
+                # Call add_reaction which now returns clear failure if custom emoji invalid
                 result = await self.add_reaction(channel_id, message_id, emoji)
-                if "Error" not in result:
-                    results.append(f"{emoji}: Success")
+                if result.get("success"):
+                    results.append({"emoji": emoji, "success": True})
                 else:
-                    errors.append(f"{emoji}: {result}")
+                    errors.append({"emoji": emoji, "error": result.get("error", "Unknown error")})
             except Exception as e:
-                errors.append(f"{emoji}: {str(e)}")
+                # Unexpected exceptions should be captured and included in failed_reactions
+                self.log_tool_error("add_multiple_reactions", e)
+                errors.append({"emoji": emoji, "error": str(e)})
         
-        if errors:
-            error_summary = "; ".join(errors)
-            return f"Finished adding multiple reactions to message {message_id}. Errors encountered: {error_summary}."
-        else:
-            return f"Successfully added all reactions to message {message_id}"
+        return {
+            "success": len(errors) == 0,
+            "message_id": message_id,
+            "channel_id": channel_id,
+            "successful_reactions": results,
+            "failed_reactions": errors,
+            "summary": f"Added {len(results)} reactions successfully, {len(errors)} failed"
+        }
     
-    async def remove_reaction(self, channel_id: str, message_id: str, emoji: str) -> str:
+    async def remove_reaction(self, channel_id: str, message_id: str, emoji: str) -> Dict[str, Any]:
         """Remove a reaction from a message."""
         self.log_tool_execution("remove_reaction", channel_id=channel_id, message_id=message_id, emoji=emoji)
         
         try:
-            import urllib.parse
-            encoded_emoji = urllib.parse.quote(emoji, safe='')
+            normalized_emoji = normalize_emoji(emoji)
+            encoded_emoji = urllib.parse.quote(normalized_emoji, safe='')
             endpoint = f"/channels/{channel_id}/messages/{message_id}/reactions/{encoded_emoji}/@me"
             
             await self.auth.make_request("DELETE", endpoint, expect_empty_response=True)
-            return f"Successfully removed reaction {emoji} from message {message_id}"
+            return {
+                "success": True,
+                "message": f"Successfully removed reaction {emoji} from message {message_id}",
+                "emoji": emoji,
+                "message_id": message_id,
+                "channel_id": channel_id
+            }
         except Exception as e:
             self.log_tool_error("remove_reaction", e)
-            return f"Error removing reaction {emoji} from message {message_id}: {str(e)}"
+            return {
+                "success": False,
+                "error": str(e),
+                "emoji": emoji,
+                "message_id": message_id,
+                "channel_id": channel_id
+            }

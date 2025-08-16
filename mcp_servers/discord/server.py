@@ -51,141 +51,101 @@ tool_registry.register_tool("messages", message_tool)
 tool_registry.register_tool("channels", channel_tool)
 tool_registry.register_tool("users", user_tool)
 
-# MCP Tool Definitions
-@mcp_server.tool(
-    name="get_server_info",
-    description="Retrieve detailed information about a Discord server (guild)",
-)
-async def get_server_info_tool(server_id: str) -> str:
-    """Get information about a Discord server (guild)."""
-    try:
-    result = await tool_registry.handle_tool_call("get_server_info", {"server_id": server_id})
-        return f"Server Info: {result}"
-    except Exception as e:
-        return str(e)
+# MCP Tool Definitions exposed via list_tools() and call_tool() dispatcher
 
-@mcp_server.tool(
-    name="list_members",
-    description="List members of a server with customizable result limits",
-)
-async def list_members_tool(server_id: str, limit: int = 100) -> str:
-    """Get a list of members in a server (Default 100, Max 1000)."""
-    try:
-    result = await tool_registry.handle_tool_call("list_members", {"server_id": server_id, "limit": limit})
-        return f"Members: {result}"
-    except Exception as e:
-        return str(e)
 
-@mcp_server.tool(
-    name="create_text_channel",
-    description="Create a new text channel with optional category and topic",
-)
-async def create_text_channel_tool(
-    server_id: str,
-    name: str,
-    topic: Optional[str] = None,
-    category_id: Optional[str] = None
-) -> str:
-    """Create a new text channel."""
-    try:
-    result = await tool_registry.handle_tool_call("create_text_channel", {"server_id": server_id, "name": name, "topic": topic, "category_id": category_id})
-        return f"Channel Created: {result}"
-    except Exception as e:
-        return str(e)
+@mcp_server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    """List all available Discord MCP tools from the tool registry."""
+    tools = []
+    
+    # Get tool definitions from the tool registry
+    tool_definitions = tool_registry.get_all_tool_definitions()
+    
+    for tool_def in tool_definitions:
+        # Convert tool definition to MCP Tool type
+        mcp_tool = types.Tool(
+            name=tool_def["name"],
+            description=tool_def["description"],
+            inputSchema=tool_def.get("inputSchema")
+        )
+        tools.append(mcp_tool)
+    
+    return tools
 
-@mcp_server.tool(
-    name="send_message",
-    description="Send a message to a specified channel",
-)
-async def send_message_tool(channel_id: str, content: str) -> str:
-    """Send a message to a specified channel."""
-    try:
-    result = await tool_registry.handle_tool_call("send_message", {"channel_id": channel_id, "content": content})
-        return f"Message Sent: {result}"
-    except Exception as e:
-        return str(e)
 
-@mcp_server.tool(
-    name="read_messages",
-    description="Retrieve recent messages from a channel",
-)
-async def read_messages_tool(channel_id: str, limit: int = 50) -> str:
-    """Read recent messages from a channel (Default 50, Max 100)."""
-    try:
-    result = await tool_registry.handle_tool_call("read_messages", {"channel_id": channel_id, "limit": limit})
-        return f"Messages: {result}"
-    except Exception as e:
-        return str(e)
+@mcp_server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    """Handle tool calls using the tool registry."""
+    ctx = mcp_server.request_context
 
-@mcp_server.tool(
-    name="add_reaction",
-    description="Add a single emoji reaction to a message",
-)
-async def add_reaction_tool(channel_id: str, message_id: str, emoji: str) -> str:
-    """Add a reaction to a message."""
     try:
-    result = await tool_registry.handle_tool_call("add_reaction", {"channel_id": channel_id, "message_id": message_id, "emoji": emoji})
-        return f"Reaction Added: {result}"
-    except Exception as e:
-        return str(e)
+        # Use the tool registry to handle the tool call
+        result = await tool_registry.handle_tool_call(name, arguments)
+        
+        # Format the result as text content
+        if isinstance(result, dict):
+            import json
+            result_text = json.dumps(result, indent=2, ensure_ascii=False)
+        elif isinstance(result, list):
+            import json
+            result_text = json.dumps(result, indent=2, ensure_ascii=False)
+        else:
+            result_text = str(result)
+        
+        return [types.TextContent(type="text", text=result_text)]
 
-@mcp_server.tool(
-    name="add_multiple_reactions",
-    description="Add multiple emoji reactions to a message",
-)
-async def add_multiple_reactions_tool(channel_id: str, message_id: str, emojis: List[str]) -> str:
-    """Add multiple reactions to a message (makes individual API calls)."""
-    try:
-    result = await tool_registry.handle_tool_call("add_multiple_reactions", {"channel_id": channel_id, "message_id": message_id, "emojis": emojis})
-        return f"Multiple Reactions Added: {result}"
     except Exception as e:
-        return str(e)
-
-@mcp_server.tool(
-    name="remove_reaction",
-    description="Remove a specific reaction from a message",
-)
-async def remove_reaction_tool(channel_id: str, message_id: str, emoji: str) -> str:
-    """Remove the bot's own reaction from a message."""
-    try:
-    result = await tool_registry.handle_tool_call("remove_reaction", {"channel_id": channel_id, "message_id": message_id, "emoji": emoji})
-        return f"Reaction Removed: {result}"
-    except Exception as e:
-        return str(e)
-
-@mcp_server.tool(
-    name="get_user_info",
-    description="Retrieve information about a specific Discord user",
-)
-async def get_user_info_tool(user_id: str) -> str:
-    """Get information about a Discord user."""
-    try:
-    result = await tool_registry.handle_tool_call("get_user_info", {"user_id": user_id})
-        return f"User Info: {result}"
-    except Exception as e:
-        return str(e)
+        logger.exception(f"Error executing tool {name}: {e}")
+        return [types.TextContent(type="text", text=f"Error: {str(e)}")]
 
 # HTTP transport setup
 def create_app() -> Starlette:
     """Create the Starlette ASGI application."""
-    transport = SseServerTransport("/mcp")
+    transport = SseServerTransport("/messages/")
 
-    async def handle_sse(scope: Scope, receive: Receive, send: Send) -> None:
-        await transport.handle_request(
-            scope,
-            receive,
-            send,
-            StreamableHTTPSessionManager.create_session,
-            mcp_server.call_tool,
-            mcp_server.call_resource,
-            mcp_server.call_prompt,
-        )
+    async def handle_sse(request):
+        logger.info("Handling SSE connection")
+        async with transport.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await mcp_server.run(
+                streams[0], streams[1], mcp_server.create_initialization_options()
+            )
+        return Response()
+
+    # Also expose a StreamableHTTP endpoint for /mcp
+    session_manager = StreamableHTTPSessionManager(
+        app=mcp_server,
+        event_store=None,
+        json_response=False,
+        stateless=True,
+    )
+
+    async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
+        logger.info("Handling StreamableHTTP request")
+        await session_manager.handle_request(scope, receive, send)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        """Context manager for session manager."""
+        async with session_manager.run():
+            logger.info("Application started with dual transports!")
+            try:
+                yield
+            finally:
+                logger.info("Application shutting down...")
 
     routes = [
-        Route("/mcp", endpoint=handle_sse),
+        # SSE routes
+        Route("/sse", endpoint=handle_sse, methods=["GET"]),
+        Mount("/messages/", app=transport.handle_post_message),
+        
+        # StreamableHTTP route
+        Mount("/mcp", app=handle_streamable_http),
     ]
 
-    return Starlette(routes=routes)
+    return Starlette(routes=routes, lifespan=lifespan)
 
 @contextlib.asynccontextmanager
 async def run_server() -> AsyncIterator[None]:
@@ -203,13 +163,7 @@ def main(port: int, host: str) -> None:
     app = create_app()
     
     logger.info(f"Starting Discord MCP Server on {host}:{port}")
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        lifespan=run_server,
-        log_level="info"
-    )
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 if __name__ == "__main__":
     main()

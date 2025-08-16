@@ -25,7 +25,7 @@ class DiscordAuth:
         if not self.token:
             raise ValueError("DISCORD_TOKEN environment variable is required")
         
-        self.api_base = "https://discord.com/api/v10"
+        self.api_base = os.getenv("DISCORD_API_BASE", "https://discord.com/api/v10")
     
     def get_headers(self) -> Dict[str, str]:
         """Get standard headers for Discord API calls."""
@@ -62,35 +62,48 @@ class DiscordAuth:
         async with aiohttp.ClientSession(headers=headers) as session:
             try:
                 async with session.request(method, url, json=json_data) as response:
-                    response.raise_for_status()
-                    
+                    # Read text early so we can surface bodies for errors or non-JSON responses
+                    raw_text = await response.text()
+                    content_type = response.headers.get('Content-Type', '')
+
+                    # Treat HTTP errors explicitly so callers receive helpful messages
+                    if response.status >= 400:
+                        try:
+                            error_body = await response.json() if 'application/json' in content_type else raw_text
+                        except Exception:
+                            error_body = raw_text
+
+                        logger.error(
+                            "Discord API request failed: %s %s for %s %s",
+                            response.status,
+                            error_body,
+                            method,
+                            url,
+                        )
+                        raise RuntimeError(f"Discord API Error ({response.status}): {error_body}")
+
                     if expect_empty_response:
                         if response.status == 204:
                             return None
-                        else:
-                            logger.warning(f"Expected empty response for {method} {endpoint}, but got status {response.status}")
-                            try:
-                                return await response.json()
-                            except aiohttp.ContentTypeError:
-                                return await response.text()
-                    else:
-                        # Check if response is JSON
-                        if 'application/json' in response.headers.get('Content-Type', ''):
+                        # unexpected non-empty response, try parsing
+                        if 'application/json' in content_type:
                             return await response.json()
-                        else:
-                            text_content = await response.text()
-                            logger.warning(f"Received non-JSON response for {method} {endpoint}: {text_content[:100]}...")
-                            return {"raw_content": text_content}
-                            
-            except aiohttp.ClientResponseError as e:
-                logger.error(f"Discord API request failed: {e.status} {e.message} for {method} {url}")
-                error_details = e.message
-                try:
-                    error_body = await e.response.json()
-                    error_details = f"{e.message} - {error_body}"
-                except Exception:
-                    pass
-                raise RuntimeError(f"Discord API Error ({e.status}): {error_details}") from e
+                        return {"raw_content": raw_text}
+
+                    # Normal successful response
+                    if 'application/json' in content_type:
+                        return await response.json()
+                    logger.warning(
+                        "Received non-JSON response for %s %s: %s",
+                        method,
+                        endpoint,
+                        raw_text[:100],
+                    )
+                    return {"raw_content": raw_text}
+
+            except aiohttp.ClientError as e:
+                logger.error(f"An aiohttp error occurred during Discord API request: {e}")
+                raise RuntimeError(f"Network error during API call to {method} {url}: {e}") from e
             except Exception as e:
                 logger.error(f"An unexpected error occurred during Discord API request: {e}")
-                raise RuntimeError(f"Unexpected error during API call to {method} {url}") from e
+                raise RuntimeError(f"Unexpected error during API call to {method} {url}: {e}") from e
