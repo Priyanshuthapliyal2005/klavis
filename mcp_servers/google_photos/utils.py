@@ -1,6 +1,4 @@
-# NOTE: As of April 2025, this integration uses the Picker API for user photo selection
-# and Library API only for app-created content.
-# See: https://developers.google.com/photos/library/guides/api-changes
+"""Utilities for Google Photos MCP server."""
 
 import os
 import logging
@@ -17,10 +15,7 @@ def get_photos_service(
     client_secret: str,
     token_uri: str
 ):
-    """
-    Returns a Google Photos Library API service client.
-    Only app-created content is accessible due to Google Photos API changes (March 2025).
-    """
+    """Returns a Google Photos Library API service client."""
     credentials = Credentials(
         token=access_token,
         refresh_token=refresh_token,
@@ -41,10 +36,7 @@ def get_picker_service(
     client_secret: str,
     token_uri: str
 ) -> Any:
-    """
-    Returns a Google Photos Picker API service client with full OAuth credentials
-    (so we can refresh the token when it expires).
-    """
+    """Returns a Google Photos Picker API service client."""
     credentials = Credentials(
         token=access_token,
         refresh_token=refresh_token,
@@ -96,6 +88,7 @@ def format_picker_media_item(item: Dict[str, Any]) -> Dict[str, Any]:
     
     return formatted_item
 
+def format_album_metadata(album: Dict[str, Any]) -> Dict[str, Any]:
     """Format album metadata for response."""
     return {
         'id': album.get('id'),
